@@ -75,13 +75,13 @@ write_config() {
     [[ "$output" == *"path does not exist"* ]]
 }
 
-@test "init bash emits cdp() function with absolute resolve path" {
+@test "init bash emits cdp() function with absolute bin path" {
     : > "$CDP_CONFIG"
     run cdp init bash
     [ "$status" -eq 0 ]
     [[ "$output" == *"cdp() {"* ]]
-    # Resolve path is absolute and points to libexec/cdp-resolve.
-    [[ "$output" == *"/libexec/cdp-resolve"* ]]
+    # Shim invokes bin/cdp via an absolute path baked at init time.
+    [[ "$output" == *"/bin/cdp"* ]]
 }
 
 @test "init zsh emits same shim as bash for V1" {

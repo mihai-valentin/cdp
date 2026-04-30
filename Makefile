@@ -45,11 +45,17 @@ install:
 	@for f in lib/*.sh; do \
 		install -m 0644 "$$f" $(LIBDIR)/; \
 	done
-	@# Patch the install-path override so bin/cdp points at the installed libexec/lib.
-	@sed -i.bak \
-		-e 's|^_CDP_LIBEXEC=.*$$|_CDP_LIBEXEC="$(LIBEXECDIR)"|' \
-		-e 's|^_CDP_LIB=.*$$|_CDP_LIB="$(LIBDIR)"|' \
-		$(BINDIR)/cdp && rm -f $(BINDIR)/cdp.bak
+	@# Patch every entry-point with absolute installed paths. cdp-init bakes
+	@# the absolute path of bin/cdp into the shim, and libexec scripts that
+	@# can be invoked directly need correct lib/ paths even without bin/cdp's
+	@# env exports.
+	@for f in $(BINDIR)/cdp $(LIBEXECDIR)/cdp-*; do \
+		sed -i.bak \
+			-e 's|^_CDP_LIBEXEC=.*$$|_CDP_LIBEXEC="$${CDP_LIBEXEC:-$(LIBEXECDIR)}"|' \
+			-e 's|^_CDP_LIB=.*$$|_CDP_LIB="$${CDP_LIB:-$(LIBDIR)}"|' \
+			-e 's|^_CDP_BIN=.*$$|_CDP_BIN="$${CDP_BIN:-$(BINDIR)/cdp}"|' \
+			"$$f" && rm -f "$$f.bak"; \
+	done
 	@echo "installed cdp -> $(BINDIR)/cdp"
 	@echo
 	@echo "# Add to your ~/.bashrc or ~/.zshrc:"

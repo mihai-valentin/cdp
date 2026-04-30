@@ -45,7 +45,7 @@ eval "$(~/.local/bin/cdp init bash)"
 ### From a release tarball
 
 ```bash
-VERSION=1.0.0
+VERSION=1.0.1
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz.sha256
 sha256sum -c cdp-${VERSION}.tar.gz.sha256

@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # libexec/cdp-init — emit the shell-shim function source.
-# The shim wraps cdp-resolve so its CDP_CD/CDP_RUN plan executes in the user's
-# interactive shell (the only process that can mutate the parent cwd).
+# The shim wraps bin/cdp so its CDP_CD/CDP_RUN plans (for label and
+# label+macro invocations) execute in the user's interactive shell.
+# Subcommands (add / rm / ls / init / help / version) bypass the
+# capture and run with stdout connected to the terminal.
 
 set -euo pipefail
+shopt -s inherit_errexit
 
 _CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
 _CDP_LIBEXEC="${CDP_LIBEXEC:-$(cd -- "$(dirname -- "$0")" && pwd)}"
+_CDP_BIN="${CDP_BIN:-$(cd -- "$(dirname -- "$0")/../bin" && pwd)/cdp}"
 
 # shellcheck source=lib/log.sh
 source "${_CDP_LIB}/log.sh"
@@ -22,14 +26,18 @@ case "$1" in
         ;;
 esac
 
-RESOLVE_PATH="${_CDP_LIBEXEC}/cdp-resolve"
-
-# Heredoc with ${RESOLVE_PATH} interpolated at emit time. All other $-references
+# Heredoc with ${_CDP_BIN} interpolated at emit time. All other $-references
 # are escaped so they remain literal in the user's shell.
 cat <<CDP_SHIM_EOF
 cdp() {
+    case "\${1:-}" in
+        ''|help|--help|-h|version|--version|-v|add|rm|ls|init)
+            command '${_CDP_BIN}' "\$@"
+            return \$?
+            ;;
+    esac
     local plan rc line
-    plan="\$('${RESOLVE_PATH}' "\$@")"
+    plan="\$(command '${_CDP_BIN}' "\$@")"
     rc=\$?
     if [[ \$rc -ne 0 ]]; then
         return \$rc

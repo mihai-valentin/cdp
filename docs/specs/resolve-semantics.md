@@ -79,14 +79,23 @@ If the body contains a literal newline, the plan is malformed. (Path values cann
 
 `cdp init bash` and `cdp init zsh` emit the shim function source for the user to `eval` into their shell. **In V1 the shim is identical for bash and zsh** — both shells accept the same function syntax for our needs. The `bash | zsh` argument is reserved for forward compatibility (e.g. when V2 fish support arrives, or when zsh-only features get added).
 
-The emitted shim has the absolute path to `cdp-resolve` baked in at `cdp init` time, so the user does not need to add `libexec/` to `PATH`. The path is computed relative to `bin/cdp` at the time of the `init` invocation.
+The emitted shim has the absolute path to **`bin/cdp`** baked in at `cdp init` time, so the user does not need to add anything to `PATH`. The shim has two paths:
 
-The literal shim source emitted (with `${RESOLVE_PATH}` substituted at emit time):
+- **Subcommand passthrough** — for `cdp` (no args), `cdp help / --help / -h`, `cdp version / --version / -v`, `cdp add`, `cdp rm`, `cdp ls`, `cdp init`. The shim invokes `bin/cdp` directly with stdout connected to the terminal so the user sees usage text, listings, and the shim source for `init` exactly as the binary writes them.
+- **Plan protocol** — for everything else (`cdp <label>` and `cdp <label> <macro>`). The shim captures `bin/cdp`'s stdout, parses each line as `CDP_CD <path>` or `CDP_RUN <command>`, and applies them to the user's interactive shell.
+
+The literal shim source emitted (with `${_CDP_BIN}` substituted at emit time):
 
 ```bash
 cdp() {
+    case "${1:-}" in
+        ''|help|--help|-h|version|--version|-v|add|rm|ls|init)
+            command '${_CDP_BIN}' "$@"
+            return $?
+            ;;
+    esac
     local plan rc line
-    plan="$('${RESOLVE_PATH}' "$@")"
+    plan="$(command '${_CDP_BIN}' "$@")"
     rc=$?
     if [[ $rc -ne 0 ]]; then
         return $rc
@@ -112,9 +121,11 @@ cdp() {
 
 Notes:
 
-- `eval` is intentional, not a child-shell. A macro that exports an environment variable (`export FOO=bar`) is expected to affect the user's interactive shell. This is a deliberate design choice — macros are **not** sandboxed; they are user-authored shortcuts that should behave as if typed at the prompt. Document this in user-facing docs.
+- `command '<path>'` ensures the binary at the absolute path is invoked, never the function (which would recurse).
+- `eval` for `CDP_RUN` is intentional, not a child-shell. A macro that exports an environment variable (`export FOO=bar`) is expected to affect the user's interactive shell. This is a deliberate design choice — macros are **not** sandboxed; they are user-authored shortcuts that should behave as if typed at the prompt.
 - The shim aborts the macro on the first non-zero exit (`|| return $?` after each `cd` and `eval`). This is V1 default; a future flag may relax it.
-- The shim does **not** capture stderr from `cdp-resolve` — errors print to the user's terminal directly, which is the desired behavior.
+- The shim does **not** capture stderr — errors from the binary print to the user's terminal directly.
+- The reserved-subcommand list in the shim's `case` statement must match the dispatcher in `bin/cdp`. When V2 adds a subcommand, both get updated and users re-run `eval "$(cdp init bash)"` to pick up the new shim.
 
 ## 6. Exit codes
 
