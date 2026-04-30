@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# bin/cdp — entry point. Dispatches to libexec/cdp-* subcommands.
+# The cwd-mutating shell function lives in the shim emitted by `cdp init`.
+
+set -euo pipefail
+
+_CDP_VERSION="0.1.0"
+
+# INSTALL_PATH_OVERRIDE — `make install` patches the two assignments below.
+_CDP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+_CDP_LIBEXEC="${_CDP_DIR}/../libexec"
+_CDP_LIB="${_CDP_DIR}/../lib"
+
+# Canonicalize (idempotent after `make install` rewrites the lines above).
+_CDP_LIBEXEC="$(cd -- "${_CDP_LIBEXEC}" && pwd)"
+_CDP_LIB="$(cd -- "${_CDP_LIB}" && pwd)"
+
+export CDP_LIB="${_CDP_LIB}"
+export CDP_LIBEXEC="${_CDP_LIBEXEC}"
+
+if [[ $# -eq 0 ]]; then
+    exec "${_CDP_LIBEXEC}/cdp-help"
+fi
+
+case "$1" in
+    add|rm|ls|init)
+        sub="$1"; shift
+        exec "${_CDP_LIBEXEC}/cdp-${sub}" "$@"
+        ;;
+    help|--help|-h)
+        exec "${_CDP_LIBEXEC}/cdp-help"
+        ;;
+    version|--version|-v)
+        printf 'cdp %s\n' "$_CDP_VERSION"
+        exit 0
+        ;;
+    *)
+        exec "${_CDP_LIBEXEC}/cdp-resolve" "$@"
+        ;;
+esac

@@ -1,0 +1,10 @@
+*.log
+*.tmp
+/tmp/
+
+# Local development scratch — kept locally, never published.
+.agent-orch/
+.claude/
+CLAUDE.md
+idea.md
+TASKS.md

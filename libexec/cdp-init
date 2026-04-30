@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# libexec/cdp-init — emit the shell-shim function source.
+# The shim wraps cdp-resolve so its CDP_CD/CDP_RUN plan executes in the user's
+# interactive shell (the only process that can mutate the parent cwd).
+
+set -euo pipefail
+
+_CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
+_CDP_LIBEXEC="${CDP_LIBEXEC:-$(cd -- "$(dirname -- "$0")" && pwd)}"
+
+# shellcheck source=lib/log.sh
+source "${_CDP_LIB}/log.sh"
+
+if [[ $# -ne 1 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "'init' takes one argument: bash | zsh"
+fi
+
+case "$1" in
+    bash|zsh) ;;
+    *)
+        CDP_DIE_EXIT=64 cdp_die "'init' takes one argument: bash | zsh"
+        ;;
+esac
+
+RESOLVE_PATH="${_CDP_LIBEXEC}/cdp-resolve"
+
+# Heredoc with ${RESOLVE_PATH} interpolated at emit time. All other $-references
+# are escaped so they remain literal in the user's shell.
+cat <<CDP_SHIM_EOF
+cdp() {
+    local plan rc line
+    plan="\$('${RESOLVE_PATH}' "\$@")"
+    rc=\$?
+    if [[ \$rc -ne 0 ]]; then
+        return \$rc
+    fi
+    while IFS= read -r line; do
+        case "\$line" in
+            'CDP_CD '*)
+                cd "\${line#CDP_CD }" || return \$?
+                ;;
+            'CDP_RUN '*)
+                eval "\${line#CDP_RUN }" || return \$?
+                ;;
+            '')
+                ;;
+            *)
+                printf 'cdp: malformed plan line: %s\n' "\$line" >&2
+                return 70
+                ;;
+        esac
+    done <<<"\$plan"
+}
+CDP_SHIM_EOF

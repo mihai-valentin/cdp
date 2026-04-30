@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# libexec/cdp-ls — list configured projects, TAB-separated.
+# TTY: emit a header row. Non-TTY: data only (script-friendly).
+
+set -euo pipefail
+shopt -s inherit_errexit
+
+_CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
+
+# shellcheck source=lib/log.sh
+source "${_CDP_LIB}/log.sh"
+# shellcheck source=lib/config.sh
+source "${_CDP_LIB}/config.sh"
+
+if [[ $# -ne 0 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "ls: takes no arguments"
+fi
+
+config_path="$(cdp_config_path)"
+if [[ ! -e "$config_path" ]]; then
+    exit 0
+fi
+
+cdp_config_parse "$config_path"
+
+if [[ "${#CDP_PROJECTS[@]}" -eq 0 ]]; then
+    exit 0
+fi
+
+if [[ -t 1 ]]; then
+    printf 'LABEL\tPATH\tMACROS\n'
+fi
+
+# Sort labels deterministically.
+labels=()
+while IFS= read -r l; do
+    labels+=("$l")
+done < <(printf '%s\n' "${!CDP_PROJECTS[@]}" | LC_ALL=C sort)
+
+for label in "${labels[@]}"; do
+    path="${CDP_PATHS[$label]}"
+    macros=()
+    if [[ "${#CDP_MACROS[@]}" -gt 0 ]]; then
+        while IFS= read -r key; do
+            if [[ "${key%%$'\x1f'*}" == "$label" ]]; then
+                macros+=("${key#*$'\x1f'}")
+            fi
+        done < <(printf '%s\n' "${!CDP_MACROS[@]}" | LC_ALL=C sort)
+    fi
+    macros_csv=""
+    if [[ "${#macros[@]}" -gt 0 ]]; then
+        macros_csv="$(IFS=,; printf '%s' "${macros[*]}")"
+    fi
+    printf '%s\t%s\t%s\n' "$label" "$path" "$macros_csv"
+done

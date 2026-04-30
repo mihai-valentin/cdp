@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# libexec/cdp-resolve — resolve <label> [<macro>] into a CDP_CD/CDP_RUN plan.
+# stdout is consumed by the shell shim; stderr carries human-readable errors.
+
+set -euo pipefail
+
+_CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
+
+# shellcheck source=lib/log.sh
+source "${_CDP_LIB}/log.sh"
+# shellcheck source=lib/config.sh
+source "${_CDP_LIB}/config.sh"
+
+if [[ $# -lt 1 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "too many arguments"
+fi
+if [[ $# -gt 2 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "too many arguments"
+fi
+
+label="$1"
+
+cdp_config_load_or_die
+
+if [[ -z "${CDP_PROJECTS[$label]+x}" ]]; then
+    cdp_die "unknown label or subcommand: ${label}"
+fi
+
+path="${CDP_PATHS[$label]}"
+
+if [[ ! -d "$path" ]]; then
+    cdp_die "project path does not exist: ${path}"
+fi
+
+if [[ $# -eq 1 ]]; then
+    printf 'CDP_CD %s\n' "$path"
+    exit 0
+fi
+
+macro="$2"
+key="${label}"$'\x1f'"${macro}"
+if [[ -z "${CDP_MACROS[$key]+x}" ]]; then
+    cdp_die "'${macro}' is not a macro of project '${label}'"
+fi
+
+printf 'CDP_CD %s\n' "$path"
+
+arr_name="CDP_RUNS_${label//-/_}_${macro//-/_}"
+# Indirect array expansion for a dynamic name.
+# shellcheck disable=SC2154,SC2294
+eval "runs=(\"\${${arr_name}[@]}\")"
+
+# shellcheck disable=SC2154 # populated via the eval above
+for cmd in "${runs[@]}"; do
+    printf 'CDP_RUN %s\n' "$cmd"
+done

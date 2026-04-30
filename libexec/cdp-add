@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# libexec/cdp-add — add a Project block to the config file.
+# Args: <label> <path>
+# Atomic write under flock; existing config preserved verbatim.
+
+set -euo pipefail
+shopt -s inherit_errexit
+
+_CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
+
+# shellcheck source=lib/log.sh
+source "${_CDP_LIB}/log.sh"
+# shellcheck source=lib/config.sh
+source "${_CDP_LIB}/config.sh"
+
+if [[ $# -ne 2 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "add: usage: cdp add <label> <path>"
+fi
+
+label="$1"
+path="$2"
+
+if ! [[ "$label" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+    CDP_DIE_EXIT=64 cdp_die "add: invalid label: '${label}'"
+fi
+case "$label" in
+    add|rm|ls|init|help|version|--help|--version|-h|-v)
+        CDP_DIE_EXIT=64 cdp_die "add: label '${label}' is reserved"
+        ;;
+esac
+
+# Tilde-expand path, require absolute, require existing dir.
+# The literal "~/" below is a glob pattern, not a value to tilde-expand.
+# shellcheck disable=SC2088
+case "$path" in
+    "~")    path="$HOME" ;;
+    "~/"*)  path="$HOME/${path:2}" ;;
+esac
+if [[ "$path" != /* ]]; then
+    cdp_die "add: path must be absolute: '${path}'"
+fi
+if [[ ! -d "$path" ]]; then
+    cdp_die "add: path is not a directory: ${path}"
+fi
+
+config_path="$(cdp_config_path)"
+mkdir -p -- "$(dirname -- "$config_path")"
+[[ -e "$config_path" ]] || : > "$config_path"
+
+# Acquire write lock.
+exec 200>"${config_path}.lock"
+flock 200
+
+cdp_config_parse "$config_path"
+if [[ -n "${CDP_PROJECTS[$label]+x}" ]]; then
+    cdp_die "add: project '${label}' already exists"
+fi
+
+tmpfile="$(mktemp -- "${config_path}.tmp.XXXXXX")"
+trap 'rm -f -- "$tmpfile"' EXIT
+
+cat -- "$config_path" > "$tmpfile"
+printf '\nProject %s\n    Path %s\n' "$label" "$path" >> "$tmpfile"
+
+mv -- "$tmpfile" "$config_path"
+trap - EXIT

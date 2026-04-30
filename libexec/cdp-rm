@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# libexec/cdp-rm — remove a Project block from the config file.
+# Args: <label>
+# Streaming filter; preserves formatting of unrelated blocks; collapses runs of
+# blank lines so the removal does not leave double-blank gaps.
+
+set -euo pipefail
+shopt -s inherit_errexit
+
+_CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
+
+# shellcheck source=lib/log.sh
+source "${_CDP_LIB}/log.sh"
+# shellcheck source=lib/config.sh
+source "${_CDP_LIB}/config.sh"
+
+if [[ $# -ne 1 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "rm: usage: cdp rm <label>"
+fi
+
+label="$1"
+
+config_path="$(cdp_config_path)"
+if [[ ! -e "$config_path" ]]; then
+    CDP_DIE_EXIT=2 cdp_die "config file not found at ${config_path}"
+fi
+
+exec 200>"${config_path}.lock"
+flock 200
+
+cdp_config_parse "$config_path"
+if [[ -z "${CDP_PROJECTS[$label]+x}" ]]; then
+    cdp_die "rm: project '${label}' not found"
+fi
+
+tmpfile="$(mktemp -- "${config_path}.tmp.XXXXXX")"
+trap 'rm -f -- "$tmpfile"' EXIT
+
+mapfile -t lines < "$config_path"
+n=${#lines[@]}
+
+drop=()
+i=0
+while ((i < n)); do
+    drop[i]=0
+    i=$((i + 1))
+done
+
+i=0
+while ((i < n)); do
+    line="${lines[i]%$'\r'}"
+    # Top-level Project line? (Case-insensitive keyword; no leading whitespace.)
+    if [[ "$line" =~ ^[Pp][Rr][Oo][Jj][Ee][Cc][Tt][[:space:]]+(.*)$ ]]; then
+        candidate="${BASH_REMATCH[1]}"
+        # Trim trailing whitespace.
+        candidate="${candidate%"${candidate##*[![:space:]]}"}"
+        if [[ "$candidate" == "$label" ]]; then
+            drop[i]=1
+            j=$((i + 1))
+            while ((j < n)); do
+                jline="${lines[j]%$'\r'}"
+                # Stop at the next column-0 non-blank non-comment line.
+                if [[ -n "$jline" && "${jline:0:1}" != [[:space:]] && "${jline:0:1}" != "#" ]]; then
+                    break
+                fi
+                drop[j]=1
+                j=$((j + 1))
+            done
+            i=$j
+            continue
+        fi
+    fi
+    i=$((i + 1))
+done
+
+# Emit surviving lines, collapsing runs of blanks (also trims leading/trailing).
+{
+    pending_blanks=0
+    i=0
+    while ((i < n)); do
+        if [[ "${drop[i]}" -eq 0 ]]; then
+            line="${lines[i]%$'\r'}"
+            if [[ -z "${line//[[:space:]]/}" ]]; then
+                pending_blanks=1
+            else
+                if [[ $pending_blanks -eq 1 ]]; then
+                    printf '\n'
+                    pending_blanks=0
+                fi
+                printf '%s\n' "$line"
+            fi
+        fi
+        i=$((i + 1))
+    done
+} > "$tmpfile"
+
+mv -- "$tmpfile" "$config_path"
+trap - EXIT

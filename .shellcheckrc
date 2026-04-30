@@ -1,0 +1,7 @@
+severity=style
+enable=all
+# SC2034: allow unused vars during scaffolding (re-evaluate in Phase 1).
+# SC2250: brace-around-every-variable is a style preference we don't follow.
+# SC2249: requiring a default *) case is too aggressive for whitelist-style switches.
+# SC2312: pipe-masks-return is mostly noise when set -o pipefail is on.
+disable=SC2034,SC2250,SC2249,SC2312

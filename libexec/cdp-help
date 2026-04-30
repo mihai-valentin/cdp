@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# libexec/cdp-help — print V1 usage and exit 0.
+
+set -euo pipefail
+
+cat <<'USAGE'
+cdp — change-dir-project: jump to project directories, run per-project macros.
+
+Usage:
+  cdp <label>                  Jump to the project's path.
+  cdp <label> <macro>          Jump, then run the macro's commands.
+  cdp add <label> <path>       Add a project entry to the config.
+  cdp rm <label>               Remove a project entry.
+  cdp ls                       List configured projects (label, path, macros).
+                               TAB-separated; pipe to `column -t -s$'\t'` for
+                               a human-readable view.
+  cdp init bash | zsh          Print the shell-shim function source.
+                               Add to your rc file: eval "$(cdp init bash)"
+  cdp --help                   This message.
+  cdp --version                Print the cdp version.
+
+Config file:
+  Searched in order: $CDP_CONFIG, $XDG_CONFIG_HOME/cdp/config,
+  $HOME/.config/cdp/config. See docs/specs/config-format.md for the grammar.
+USAGE
