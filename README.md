@@ -45,7 +45,7 @@ eval "$(~/.local/bin/cdp init bash)"
 ### From a release tarball
 
 ```bash
-VERSION=0.1.0
+VERSION=1.0.0
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz.sha256
 sha256sum -c cdp-${VERSION}.tar.gz.sha256
@@ -136,7 +136,7 @@ The formal grammar lives in [`docs/specs/config-format.md`](docs/specs/config-fo
 
 ## Status
 
-Pre-v0.1.0. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
+v1.0.0 — first stable release. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
 
 ## Contributing
 
