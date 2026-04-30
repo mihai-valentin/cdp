@@ -136,7 +136,7 @@ The formal grammar lives in [`docs/specs/config-format.md`](docs/specs/config-fo
 
 ## Status
 
-v1.0.0 — first stable release. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
+v1.0.1 — first stable release. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
 
 ## Contributing
 
