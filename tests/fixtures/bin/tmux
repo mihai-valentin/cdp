@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# tests/fixtures/bin/tmux — test stub for tmux.
+# Logs every invocation to $CDP_TEST_TMUX_LOG. Default behavior:
+#   has-session         exit 1 (no session). If CDP_TEST_HAS_SESSION=1, exit 0.
+#   new-session         exit 0.
+#   list-panes          echo '%0' (the seed pane id).
+#   split-window …-P -F echo '%<n>' where n is a monotonic counter persisted
+#                       in $CDP_TEST_TMUX_STATE/split.cnt.
+#   send-keys           exit 0.
+#   attach              exit 0 (do NOT actually attach in tests).
+#   switch-client       exit 0.
+#   display-message     echo a fixed socket path.
+#   *                   exit 0.
+
+set -euo pipefail
+
+log="${CDP_TEST_TMUX_LOG:-/dev/null}"
+state_dir="${CDP_TEST_TMUX_STATE:-/tmp}"
+
+{
+    printf 'tmux'
+    for arg in "$@"; do
+        printf ' %q' "$arg"
+    done
+    printf '\n'
+} >> "$log"
+
+case "${1:-}" in
+    has-session)
+        if [[ "${CDP_TEST_HAS_SESSION:-0}" == "1" ]]; then
+            exit 0
+        fi
+        exit 1
+        ;;
+    new-session)
+        exit 0
+        ;;
+    list-panes)
+        printf '%%0\n'
+        ;;
+    split-window)
+        cnt_file="${state_dir}/split.cnt"
+        prev=0
+        [[ -f "$cnt_file" ]] && prev="$(cat "$cnt_file")"
+        new=$((prev + 1))
+        printf '%s\n' "$new" > "$cnt_file"
+        printf '%%%d\n' "$new"
+        ;;
+    send-keys|attach|switch-client)
+        exit 0
+        ;;
+    display-message)
+        printf '/tmp/test-socket\n'
+        ;;
+    *)
+        exit 0
+        ;;
+esac

@@ -12,6 +12,9 @@ SHELL_SCRIPTS = bin/cdp \
                 $(wildcard lib/*.sh) \
                 install.sh
 
+# libexec scripts are picked up by the wildcard above; the new cdp-tmux
+# entry-point auto-enrolls in lint, install, and uninstall via the same path.
+
 .PHONY: help lint test check install uninstall clean
 
 help:
@@ -54,6 +57,7 @@ install:
 			-e 's|^_CDP_LIBEXEC=.*$$|_CDP_LIBEXEC="$${CDP_LIBEXEC:-$(LIBEXECDIR)}"|' \
 			-e 's|^_CDP_LIB=.*$$|_CDP_LIB="$${CDP_LIB:-$(LIBDIR)}"|' \
 			-e 's|^_CDP_BIN=.*$$|_CDP_BIN="$${CDP_BIN:-$(BINDIR)/cdp}"|' \
+			-e 's|^_CDP_TMUX=.*$$|_CDP_TMUX="$${CDP_TMUX:-$(LIBEXECDIR)/cdp-tmux}"|' \
 			"$$f" && rm -f "$$f.bak"; \
 	done
 	@echo "installed cdp -> $(BINDIR)/cdp"

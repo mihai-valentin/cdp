@@ -32,3 +32,17 @@ teardown() {
 cdp() {
     "$CDP_BIN" "$@"
 }
+
+# Activate the tests/fixtures/bin/tmux stub for the rest of the test.
+# Logs all stub invocations to $CDP_TEST_TMUX_LOG (also exported).
+# Pass extra env in the caller's setup if you need has-session=true etc.
+setup_tmux_stub() {
+    local fixture_bin="${BATS_TEST_DIRNAME}/fixtures/bin"
+    PATH="${fixture_bin}:${PATH}"
+    export PATH
+    CDP_TEST_TMUX_LOG="${BATS_TEST_TMPDIR}/tmux.log"
+    CDP_TEST_TMUX_STATE="${BATS_TEST_TMPDIR}/tmux-state"
+    mkdir -p "$CDP_TEST_TMUX_STATE"
+    : > "$CDP_TEST_TMUX_LOG"
+    export CDP_TEST_TMUX_LOG CDP_TEST_TMUX_STATE
+}

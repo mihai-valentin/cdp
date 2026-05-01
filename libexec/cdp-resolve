@@ -37,20 +37,48 @@ if [[ $# -eq 1 ]]; then
     exit 0
 fi
 
-macro="$2"
-key="${label}"$'\x1f'"${macro}"
-if [[ -z "${CDP_MACROS[$key]+x}" ]]; then
-    cdp_die "'${macro}' is not a macro of project '${label}'"
+name="$2"
+key="${label}"$'\x1f'"${name}"
+if [[ -z "${CDP_ACTIONS[$key]+x}" ]]; then
+    cdp_die "'${name}' is not a macro or tmux of project '${label}'"
 fi
 
-printf 'CDP_CD %s\n' "$path"
+case "${CDP_ACTIONS[$key]}" in
+    macro)
+        printf 'CDP_CD %s\n' "$path"
+        arr_name="CDP_RUNS_${label//-/_}_${name//-/_}"
+        # Indirect array expansion for a dynamic name.
+        # shellcheck disable=SC2154,SC2294
+        eval "runs=(\"\${${arr_name}[@]}\")"
+        # shellcheck disable=SC2154 # populated via the eval above
+        for cmd in "${runs[@]}"; do
+            printf 'CDP_RUN %s\n' "$cmd"
+        done
+        ;;
+    tmux)
+        layout="${CDP_TMUX_LAYOUTS[$key]}"
+        # Walk the layout to derive pane order. cdp_tmux_layout_parse was
+        # already run successfully at parse time, so re-running here is
+        # purely to populate CDP_TMUX_LAYOUT_PANES in this process.
+        cdp_tmux_layout_parse "$layout"
 
-arr_name="CDP_RUNS_${label//-/_}_${macro//-/_}"
-# Indirect array expansion for a dynamic name.
-# shellcheck disable=SC2154,SC2294
-eval "runs=(\"\${${arr_name}[@]}\")"
+        printf 'CDP_CD %s\n' "$path"
+        printf 'CDP_TMUX_SESSION %s-%s\n' "$label" "$name"
+        printf 'CDP_TMUX_LAYOUT %s\n' "$layout"
 
-# shellcheck disable=SC2154 # populated via the eval above
-for cmd in "${runs[@]}"; do
-    printf 'CDP_RUN %s\n' "$cmd"
-done
+        for pane in "${CDP_TMUX_LAYOUT_PANES[@]}"; do
+            arr_name="CDP_TMUX_PANE_RUNS_${label//-/_}_${name//-/_}_${pane//-/_}"
+            # shellcheck disable=SC2154,SC2294
+            eval "runs=(\"\${${arr_name}[@]}\")"
+            for cmd in "${runs[@]}"; do
+                printf 'CDP_TMUX_PANE %s\x1f%s\n' "$pane" "$cmd"
+            done
+        done
+
+        printf 'CDP_TMUX_ATTACH\n'
+        ;;
+    *)
+        # Unreachable — parser only writes "macro" or "tmux".
+        cdp_die "internal error: unknown action kind '${CDP_ACTIONS[$key]}' for '${label} ${name}'"
+        ;;
+esac

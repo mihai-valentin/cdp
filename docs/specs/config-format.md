@@ -17,17 +17,19 @@ The file lives at `${CDP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/cdp/config}`.
 
 ## 3. Keywords and case
 
-The four keywords are: `Project`, `Path`, `Macro`, `Run`.
+The keywords are: `Project`, `Path`, `Macro`, `Run`, `Tmux`, `Layout`, `Pane`. The first four cover V1; `Tmux`, `Layout`, and `Pane` were added in V1.1 — see [`tmux-layout.md`](tmux-layout.md) for the full tmux-block specification.
 
-Keywords are **case-insensitive**: `project`, `Project`, `PROJECT` are all valid spellings of the same keyword. The canonical form used in this document and in error messages is **title-case** (`Project`, `Path`, `Macro`, `Run`).
+Keywords are **case-insensitive**: `project`, `Project`, `PROJECT` are all valid spellings of the same keyword. The canonical form used in this document and in error messages is **title-case** (`Project`, `Path`, `Macro`, `Run`, `Tmux`, `Layout`, `Pane`).
 
-Identifiers (project labels and macro names) are **case-sensitive**. `Project Foo` and `Project foo` are two different projects.
+Identifiers (project labels, macro names, tmux-block names, pane names) are **case-sensitive**. `Project Foo` and `Project foo` are two different projects.
 
 ## 4. Indentation rules
 
 - A `Project <label>` line **must** start at column 0 (no leading whitespace).
-- A `Path` or `Macro` line inside a `Project` block **must** be more indented than its parent `Project` line. Any positive amount of leading whitespace works.
-- A `Run` line inside a `Macro` block **must** be more indented than its parent `Macro` line. Again, any positive amount works.
+- A `Path`, `Macro`, or `Tmux` line inside a `Project` block **must** be more indented than its parent `Project` line. Any positive amount of leading whitespace works.
+- A `Run` line inside a `Macro` block **must** be more indented than its parent `Macro` line.
+- A `Layout` or `Pane` line inside a `Tmux` block **must** be more indented than its parent `Tmux` line.
+- A `Run` line inside a `Pane` block (V1.1 — tmux integration) **must** be more indented than its parent `Pane` line.
 - Indentation may mix tabs and spaces. The parser does not assume a tab width. The rule is purely "strictly more leading whitespace bytes than the parent line." Two child lines under the same parent need not match each other — only each must be deeper than the parent.
 
 In practice, a 4-space indent for `Path`/`Macro` and an 8-space indent for `Run` is recommended.
@@ -65,6 +67,17 @@ In practice, a 4-space indent for `Path`/`Macro` and an 8-space indent for `Run`
 - The value is taken **verbatim** as a single shell command line. There is no escape sequence, no continuation, no quoting interpretation. Variable expansion, command substitution, and pipe semantics happen later, when the macro runs in the user's shell.
 - One macro may have multiple `Run` lines; they execute in source order, in the user's interactive shell, after the `cd`.
 - An empty `Run` (no command after the keyword) is a parse error.
+- `Run` is also valid inside a `Pane` block (V1.1 — tmux integration); see [`tmux-layout.md`](tmux-layout.md) §4.5 for the pane-specific semantics. The line-level grammar is identical.
+
+### 5.5 `Tmux <name>`, `Layout <expression>`, `Pane <name>` (V1.1)
+
+These three keywords define a tmux-orchestrated pane layout for a project. They are summarized here for the parser's benefit; the canonical specification is [`tmux-layout.md`](tmux-layout.md).
+
+- `Tmux <name>` opens a sub-block inside a `Project`. Name syntax: `[a-zA-Z][a-zA-Z0-9_-]*`. Names are unique within the parent project, and must not collide with any `Macro` name in the same project (parse error — see §7).
+- `Layout <expression>` is required exactly once per `Tmux` block. The value is the rest of the line after `Layout<whitespace>`, trimmed of trailing whitespace, and parsed per the Layout DSL grammar in [`tmux-layout.md`](tmux-layout.md) §5. Layout-level errors (undefined pane reference, dangling pane, duplicate reference, malformed grammar) are reported at parse time.
+- `Pane <name>` opens a nested sub-block inside a `Tmux` block. Name syntax: `[a-zA-Z][a-zA-Z0-9_-]*`. Pane names are unique within their parent `Tmux` block. Each `Pane` must contain at least one `Run` line.
+
+Projects without `Tmux` blocks parse and resolve exactly as in V1.
 
 ## 6. Reserved subcommands
 
@@ -82,12 +95,29 @@ This list **may grow** in V2+ as new subcommands are introduced. Adding to it is
 - Duplicate macro name within the same project.
 - A `Project` block with zero `Path` lines, or two-plus `Path` lines.
 - A `Macro` line outside any `Project` block.
-- A `Run` line outside any `Macro` block.
+- A `Run` line outside any `Macro` or `Pane` block.
 - A project label that matches a reserved subcommand.
 - A macro name that matches a reserved subcommand.
 - A relative path after tilde expansion.
 - An empty `Run`.
 - An unknown keyword.
+
+V1.1 (tmux) additions:
+
+- Duplicate `Tmux` name within the same project.
+- A `Tmux` name that collides with a `Macro` name in the same project (the two share the `cdp <label> <name>` dispatch arity; collisions are forbidden rather than resolved by lookup-order).
+- A `Tmux` name that matches a reserved subcommand.
+- A `Tmux` block with zero `Layout` lines, or two-plus `Layout` lines.
+- A `Tmux` block with zero `Pane` blocks.
+- A `Layout` line outside any `Tmux` block.
+- A `Pane` line outside any `Tmux` block.
+- Duplicate `Pane` name within the same `Tmux` block.
+- A `Pane` name that matches a reserved subcommand.
+- A `Pane` block with zero `Run` lines.
+- A `Layout` expression that fails to parse against the Layout DSL grammar.
+- A `Layout` expression that references a pane name not defined as a `Pane` block in the parent `Tmux`.
+- A `Pane` block whose name is not referenced by the parent `Tmux`'s `Layout` expression.
+- A `Layout` expression that references the same pane name more than once.
 
 ## 8. Error reporting
 
@@ -108,9 +138,22 @@ cdp: config:<line>: <message>
 | Missing `Path` line | `project '<label>' has no Path` |
 | Relative `Path` value | `Path must be absolute: '<value>'` |
 | Empty `Run` line | `empty Run line` |
-| Reserved label/name | `project label '<label>' is reserved` / `macro name '<name>' is reserved` |
+| Reserved label/name | `project label '<label>' is reserved` / `macro name '<name>' is reserved` / `tmux name '<name>' is reserved` / `pane name '<name>' is reserved` |
 | `Macro` outside a `Project` block | `Macro outside Project block` |
-| `Run` outside a `Macro` block | `Run outside Macro block` |
+| `Run` outside a `Macro` or `Pane` block | `Run outside Macro or Pane block` |
+| Duplicate Tmux name in project (V1.1) | `duplicate tmux name '<name>' in project '<label>'` |
+| Tmux/Macro name collision in project (V1.1) | `name '<name>' already used as Macro in project '<label>'` (or `as Tmux`) |
+| Multiple `Layout` lines in one Tmux block (V1.1) | `multiple Layout lines for tmux '<name>' of project '<label>'` |
+| Missing `Layout` in a Tmux block (V1.1) | `tmux '<name>' of project '<label>' has no Layout` |
+| Tmux block with no Panes (V1.1) | `tmux '<name>' of project '<label>' has no Pane` |
+| `Layout` outside a `Tmux` block (V1.1) | `Layout outside Tmux block` |
+| `Pane` outside a `Tmux` block (V1.1) | `Pane outside Tmux block` |
+| Duplicate Pane name within a Tmux block (V1.1) | `duplicate pane name '<name>' in tmux '<tmux-name>' of project '<label>'` |
+| Pane block with no Runs (V1.1) | `pane '<name>' in tmux '<tmux-name>' of project '<label>' has no Run` |
+| Layout DSL parse error (V1.1) | `layout for tmux '<name>' of project '<label>' is malformed: <reason>` |
+| Layout references undefined pane (V1.1) | `layout references undefined pane '<pane>' in tmux '<name>' of project '<label>'` |
+| Pane defined but not referenced (V1.1) | `pane '<name>' defined but not referenced in layout` |
+| Pane referenced more than once (V1.1) | `pane '<name>' referenced more than once in layout` |
 
 The parser is **fail-fast**: it reports the first error and exits. It does not attempt multi-error recovery — fix one, re-run.
 
@@ -210,8 +253,13 @@ cdp: config:3: duplicate label: 'foo'
 
 Exit code: `65`.
 
-## 10. Open questions (deferred to V2+)
+## 10. Open questions (deferred to V1.2+)
 
 - **`Include <other-config>`** — should we support file-include directives, à la SSH config? Useful for keeping per-machine overrides in a separate file that's not version-controlled. Deferred until users request it.
 - **`Env KEY=VALUE` per project** — auto-export environment variables on jump. This sits between project-config and direnv's territory; might be best left to direnv. Deferred.
-- **`Layout` keyword** — reserved now or only when V2's tmux integration ships? Decision: do **not** reserve it in V1. If V2 needs it, it joins the reserved list at that time; users with `Layout` macros (unlikely — capitalized macro names matter only via case-insensitive parsing of *keywords*, and `Layout` would only collide as a *macro name* if someone named one `layout`) must rename. The cost of a future rename is small; the cost of pre-reserving every conceivable V2 keyword is endless paranoia.
+- **Multi-window `Tmux` blocks** — V1.1 creates one tmux window per session. A future `Window <name> { ... }` nested construct could express multi-window layouts. Deferred until users hit the single-window ceiling.
+- **Per-pane `Cwd <subpath>`** — every pane currently inherits the project's `Path`. A `Cwd` child of `Pane` could override it for that pane. Deferred to V1.2.
+
+### Resolved questions
+
+- **`Layout` keyword reservation** — reserved as of V1.1 alongside `Tmux` and `Pane`. Users with `Macro` or `Pane` names spelled `layout`, `tmux`, or `pane` must rename before upgrading from V1.0.x → V1.1.

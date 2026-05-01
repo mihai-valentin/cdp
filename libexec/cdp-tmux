@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# libexec/cdp-tmux — tmux orchestrator for cdp Tmux blocks.
+# Invoked by the shell shim on CDP_TMUX_ATTACH (see libexec/cdp-init).
+# See docs/specs/tmux-layout.md §6 for the full protocol.
+#
+# Usage: cdp-tmux <session-name> <layout-string> [<pane-name>$'\x1f'<command>]...
+#
+# Behavior:
+#   1. Verifies tmux is on PATH.
+#   2. If the session exists, attaches (or `switch-client` from inside tmux).
+#   3. Else: parses the layout, creates the session detached, splits panes
+#      per the BFS-by-slot walk, sends each pane's commands via send-keys,
+#      then attaches.
+
+set -euo pipefail
+
+# INSTALL_PATH_OVERRIDE — `make install` patches the two assignments below.
+_CDP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+_CDP_LIB="${_CDP_DIR}/../lib"
+
+# Canonicalize (idempotent after install).
+_CDP_LIB="$(cd -- "${_CDP_LIB}" && pwd)"
+
+# shellcheck source=lib/log.sh
+source "${_CDP_LIB}/log.sh"
+# shellcheck source=lib/tmux.sh
+source "${_CDP_LIB}/tmux.sh"
+
+if [[ $# -lt 2 ]]; then
+    CDP_DIE_EXIT=70 cdp_die "internal error: cdp-tmux missing required arguments"
+fi
+
+session="$1"
+layout="$2"
+shift 2
+
+if [[ -z "$session" || -z "$layout" ]]; then
+    CDP_DIE_EXIT=70 cdp_die "internal error: cdp-tmux received empty session or layout"
+fi
+
+# Build pane -> newline-joined commands map. Multi-Run panes pile up here.
+declare -A pane_cmds=()
+declare -a pane_first_seen=()
+for record in "$@"; do
+    pane_name="${record%%$'\x1f'*}"
+    pane_cmd="${record#*$'\x1f'}"
+    if [[ -z "${pane_cmds[$pane_name]+x}" ]]; then
+        pane_cmds["$pane_name"]=""
+        pane_first_seen+=("$pane_name")
+    fi
+    if [[ -n "${pane_cmds[$pane_name]}" ]]; then
+        pane_cmds["$pane_name"]+=$'\n'
+    fi
+    pane_cmds["$pane_name"]+="$pane_cmd"
+done
+
+if ! command -v tmux >/dev/null 2>&1; then
+    CDP_DIE_EXIT=3 cdp_die "tmux not found on PATH"
+fi
+
+# Detect "running inside a different tmux server". $TMUX is `socket,pid,session`
+# when set; the socket path is the part before the first comma. Compare against
+# tmux's default socket for our user. If the user has a non-default socket via
+# tmux -L, $TMUX still matches the active socket and switch-client works fine —
+# this check only fires when the user explicitly nested a different `tmux -L`
+# session inside another. Conservative bail-out for a rare case.
+inside_tmux=0
+if [[ -n "${TMUX:-}" ]]; then
+    inside_tmux=1
+    current_socket="${TMUX%%,*}"
+    default_socket="$(tmux display-message -p '#{socket_path}' 2>/dev/null || true)"
+    if [[ -n "$default_socket" && "$current_socket" != "$default_socket" ]]; then
+        CDP_DIE_EXIT=3 cdp_die "\$TMUX points to a different tmux server; cannot orchestrate from here"
+    fi
+fi
+
+attach_session() {
+    if (( inside_tmux )); then
+        exec tmux switch-client -t "$session"
+    else
+        exec tmux attach -t "$session"
+    fi
+}
+
+if tmux has-session -t "$session" 2>/dev/null; then
+    attach_session
+fi
+
+# Session does not exist — create it. Walk the layout via lib/tmux.sh.
+cdp_tmux_layout_parse "$layout"
+cwd="$PWD"
+
+# Map walk-index -> tmux pane id. The new-session call seeds the first pane.
+declare -a tmux_pane_ids=()
+new_session_err=""
+if ! new_session_err="$(tmux new-session -d -s "$session" -c "$cwd" -n cdp 2>&1)"; then
+    cdp_die "failed to create tmux session '${session}': ${new_session_err}"
+fi
+first_pane_id="$(tmux list-panes -t "${session}:cdp" -F '#{pane_id}' | head -n 1)"
+tmux_pane_ids[0]="$first_pane_id"
+
+# Walk subsequent ops. Each op is "SPLIT <h|v> <parent-walk-idx>".
+n_panes=${#CDP_TMUX_LAYOUT_PANES[@]}
+for (( i=1; i<n_panes; i++ )); do
+    op="${CDP_TMUX_LAYOUT_OPS[$i]}"
+    # Strip "SPLIT " prefix and split on space.
+    op_body="${op#SPLIT }"
+    dir="${op_body%% *}"
+    parent_walk_idx="${op_body##* }"
+    parent_pane_id="${tmux_pane_ids[$parent_walk_idx]}"
+    new_pane_id="$(tmux split-window -t "${session}:cdp.${parent_pane_id}" "-${dir}" -c "$cwd" -P -F '#{pane_id}')"
+    tmux_pane_ids[i]="$new_pane_id"
+done
+
+# Send commands for each pane in walk order.
+for (( i=0; i<n_panes; i++ )); do
+    pane_name="${CDP_TMUX_LAYOUT_PANES[$i]}"
+    pane_id="${tmux_pane_ids[$i]}"
+    [[ -n "${pane_cmds[$pane_name]+x}" ]] || continue
+    while IFS= read -r cmd; do
+        [[ -z "$cmd" ]] && continue
+        tmux send-keys -t "${session}:cdp.${pane_id}" -- "$cmd" Enter
+    done <<<"${pane_cmds[$pane_name]}"
+done
+
+attach_session

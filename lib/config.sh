@@ -1,14 +1,30 @@
 #!/usr/bin/env bash
 # lib/config.sh — cdp config-file parser.
-# Tested by tests/config_parse.bats.
+# Tested by tests/config_parse.bats and tests/config_parse_tmux.bats.
 #
-# Sourced (not executed). Populates four global arrays in the caller's scope:
-#   CDP_PROJECTS  (assoc): label -> 1
-#   CDP_PATHS     (assoc): label -> absolute path
-#   CDP_MACROS    (assoc): "label\x1fmacro" -> 1
-#   CDP_RUNS_<label>_<macro> (indexed): Run command lines, in source order.
-#     Hyphens in identifiers are mapped to underscores for the array-name
-#     portion only (bash identifiers cannot contain hyphens).
+# Sourced (not executed). Populates these globals in the caller's scope:
+#
+#   V1 (Project / Path / Macro / Run):
+#     CDP_PROJECTS  (assoc): label -> 1
+#     CDP_PATHS     (assoc): label -> absolute path
+#     CDP_MACROS    (assoc): "label\x1fmacro" -> 1
+#     CDP_RUNS_<label>_<macro> (indexed): Run command lines, source order.
+#
+#   V1.1 (Tmux / Layout / Pane):
+#     CDP_TMUX_LAYOUTS         (assoc): "label\x1ftmux"            -> layout DSL string
+#     CDP_TMUX_LAYOUT_LINENOS  (assoc): "label\x1ftmux"            -> source lineno of Layout
+#     CDP_TMUX_PANES           (assoc): "label\x1ftmux\x1fpane"    -> 1
+#     CDP_TMUX_PANE_LINENOS    (assoc): "label\x1ftmux\x1fpane"    -> source lineno of Pane
+#     CDP_TMUX_PANE_RUNS_<label>_<tmux>_<pane> (indexed): Run lines, source order.
+#
+#   Unified action map (V1 macros + V1.1 tmux blocks):
+#     CDP_ACTIONS       (assoc): "label\x1fname"  -> "macro" | "tmux"
+#     CDP_ACTION_ORDER  (indexed): "label\x1fname" records in source order
+#                                   (used by `cdp ls` to preserve config order)
+#
+#   Hyphens in identifiers are mapped to underscores for the array-name
+#   portion only (bash identifier rules); the originals are preserved as
+#   keys in the assoc maps.
 
 [[ -n "${_CDP_CONFIG_SH:-}" ]] && return 0
 _CDP_CONFIG_SH=1
@@ -19,7 +35,13 @@ if [[ -z "${_CDP_LOG_SH:-}" ]]; then
     source "${BASH_SOURCE[0]%/*}/log.sh"
 fi
 
-# Reserved subcommand list — labels and macro names that are forbidden.
+# Layout DSL parser (cdp_tmux_layout_parse, cdp_tmux_layout_pane_set).
+if [[ -z "${_CDP_TMUX_SH:-}" ]]; then
+    # shellcheck source=lib/tmux.sh
+    source "${BASH_SOURCE[0]%/*}/tmux.sh"
+fi
+
+# Reserved subcommand list — labels and macro/tmux/pane names that are forbidden.
 _cdp_is_reserved() {
     case "$1" in
         add|rm|ls|init|help|version|--help|--version|-h|-v) return 0 ;;
@@ -59,6 +81,10 @@ cdp_config_load_or_die() {
 cdp_config_parse() {
     local file="$1"
     declare -gA CDP_PROJECTS=() CDP_PATHS=() CDP_MACROS=()
+    declare -gA CDP_TMUX_LAYOUTS=() CDP_TMUX_LAYOUT_LINENOS=()
+    declare -gA CDP_TMUX_PANES=() CDP_TMUX_PANE_LINENOS=()
+    declare -gA CDP_ACTIONS=()
+    declare -ga CDP_ACTION_ORDER=()
 
     # Save and enable nocasematch for keyword case-insensitivity.
     local _had_nocase=0
@@ -66,7 +92,7 @@ cdp_config_parse() {
     shopt -s nocasematch
 
     local lineno=0
-    local _proj="" _macro=""
+    local _proj="" _macro="" _tmux="" _pane=""
     local line line_trimmed first value arr_name key
 
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -108,6 +134,8 @@ cdp_config_parse() {
                 fi
                 _proj="$value"
                 _macro=""
+                _tmux=""
+                _pane=""
                 CDP_PROJECTS["$_proj"]=1
                 ;;
             Path)
@@ -148,24 +176,105 @@ cdp_config_parse() {
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: macro name '${value}' is reserved"
                 fi
                 key="${_proj}"$'\x1f'"${value}"
+                if [[ "${CDP_ACTIONS[$key]:-}" == "tmux" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: name '${value}' already used as Tmux in project '${_proj}'"
+                fi
                 if [[ -n "${CDP_MACROS[$key]+x}" ]]; then
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: duplicate macro name '${value}' in project '${_proj}'"
                 fi
                 _macro="$value"
+                _tmux=""
+                _pane=""
                 CDP_MACROS["$key"]=1
+                CDP_ACTIONS["$key"]="macro"
+                CDP_ACTION_ORDER+=("$key")
                 arr_name="CDP_RUNS_${_proj//-/_}_${_macro//-/_}"
                 # Eval is required because the array name is dynamic.
                 # shellcheck disable=SC2294
                 eval "declare -ga ${arr_name}=()"
                 ;;
-            Run)
-                if [[ -z "$_macro" ]]; then
-                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Run outside Macro block"
+            Tmux)
+                if [[ -z "$_proj" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Tmux outside Project block"
                 fi
+                if [[ -z "$value" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Tmux requires a name"
+                fi
+                if ! [[ "$value" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: invalid tmux name: '${value}'"
+                fi
+                if _cdp_is_reserved "$value"; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: tmux name '${value}' is reserved"
+                fi
+                key="${_proj}"$'\x1f'"${value}"
+                if [[ "${CDP_ACTIONS[$key]:-}" == "macro" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: name '${value}' already used as Macro in project '${_proj}'"
+                fi
+                if [[ "${CDP_ACTIONS[$key]:-}" == "tmux" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: duplicate tmux name '${value}' in project '${_proj}'"
+                fi
+                _tmux="$value"
+                _macro=""
+                _pane=""
+                CDP_ACTIONS["$key"]="tmux"
+                CDP_ACTION_ORDER+=("$key")
+                ;;
+            Layout)
+                if [[ -z "$_tmux" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Layout outside Tmux block"
+                fi
+                if [[ -z "$value" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Layout requires a value"
+                fi
+                key="${_proj}"$'\x1f'"${_tmux}"
+                if [[ -n "${CDP_TMUX_LAYOUTS[$key]+x}" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: multiple Layout lines for tmux '${_tmux}' of project '${_proj}'"
+                fi
+                CDP_TMUX_LAYOUTS["$key"]="$value"
+                CDP_TMUX_LAYOUT_LINENOS["$key"]="$lineno"
+                _pane=""
+                ;;
+            Pane)
+                if [[ -z "$_tmux" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Pane outside Tmux block"
+                fi
+                if [[ -z "$value" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Pane requires a name"
+                fi
+                if ! [[ "$value" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: invalid pane name: '${value}'"
+                fi
+                if _cdp_is_reserved "$value"; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: pane name '${value}' is reserved"
+                fi
+                key="${_proj}"$'\x1f'"${_tmux}"$'\x1f'"${value}"
+                if [[ -n "${CDP_TMUX_PANES[$key]+x}" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: duplicate pane name '${value}' in tmux '${_tmux}' of project '${_proj}'"
+                fi
+                _pane="$value"
+                _macro=""
+                CDP_TMUX_PANES["$key"]=1
+                CDP_TMUX_PANE_LINENOS["$key"]="$lineno"
+                arr_name="CDP_TMUX_PANE_RUNS_${_proj//-/_}_${_tmux//-/_}_${_pane//-/_}"
+                # shellcheck disable=SC2294
+                eval "declare -ga ${arr_name}=()"
+                ;;
+            Run)
                 if [[ -z "$value" ]]; then
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: empty Run line"
                 fi
-                arr_name="CDP_RUNS_${_proj//-/_}_${_macro//-/_}"
+                if [[ -n "$_pane" && -n "$_macro" ]]; then
+                    # Cannot happen given the state-machine transitions; if it
+                    # does, it's a parser-internal bug, not user input.
+                    CDP_DIE_EXIT=70 cdp_die "config:${lineno}: parser invariant: both _macro and _pane set"
+                fi
+                if [[ -n "$_pane" ]]; then
+                    arr_name="CDP_TMUX_PANE_RUNS_${_proj//-/_}_${_tmux//-/_}_${_pane//-/_}"
+                elif [[ -n "$_macro" ]]; then
+                    arr_name="CDP_RUNS_${_proj//-/_}_${_macro//-/_}"
+                else
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Run outside Macro or Pane block"
+                fi
                 # shellcheck disable=SC2294
                 eval "${arr_name}+=(\"\$value\")"
                 ;;
@@ -186,5 +295,85 @@ cdp_config_parse() {
         if [[ -z "${CDP_PATHS[$label]+x}" ]]; then
             CDP_DIE_EXIT=65 cdp_die "config: project '${label}' has no Path"
         fi
+    done
+
+    _cdp_validate_tmux_blocks
+}
+
+# Post-loop structural validation for V1.1 Tmux blocks. Pulled out of
+# cdp_config_parse only to keep the read loop readable.
+_cdp_validate_tmux_blocks() {
+    local action_key proj tmux_name layout layout_lineno
+    local pane_key pane_name pane_lineno arr_name run_count
+    local -A pane_referenced=()
+
+    for action_key in "${!CDP_ACTIONS[@]}"; do
+        [[ "${CDP_ACTIONS[$action_key]}" == "tmux" ]] || continue
+        proj="${action_key%%$'\x1f'*}"
+        tmux_name="${action_key#*$'\x1f'}"
+
+        # Every Tmux block needs a Layout.
+        if [[ -z "${CDP_TMUX_LAYOUTS[$action_key]+x}" ]]; then
+            CDP_DIE_EXIT=65 cdp_die "config: tmux '${tmux_name}' of project '${proj}' has no Layout"
+        fi
+        layout="${CDP_TMUX_LAYOUTS[$action_key]}"
+        layout_lineno="${CDP_TMUX_LAYOUT_LINENOS[$action_key]}"
+
+        # Every Tmux block needs at least one Pane.
+        local -a panes_in_block=()
+        for pane_key in "${!CDP_TMUX_PANES[@]}"; do
+            [[ "$pane_key" == "${action_key}"$'\x1f'* ]] || continue
+            panes_in_block+=("${pane_key##*$'\x1f'}")
+        done
+        if (( ${#panes_in_block[@]} == 0 )); then
+            CDP_DIE_EXIT=65 cdp_die "config: tmux '${tmux_name}' of project '${proj}' has no Pane"
+        fi
+
+        # Each Pane must have at least one Run.
+        for pane_name in "${panes_in_block[@]}"; do
+            arr_name="CDP_TMUX_PANE_RUNS_${proj//-/_}_${tmux_name//-/_}_${pane_name//-/_}"
+            eval "run_count=\${#${arr_name}[@]}"
+            if (( run_count == 0 )); then
+                pane_lineno="${CDP_TMUX_PANE_LINENOS[${action_key}$'\x1f'${pane_name}]}"
+                CDP_DIE_EXIT=65 cdp_die "config:${pane_lineno}: pane '${pane_name}' in tmux '${tmux_name}' of project '${proj}' has no Run"
+            fi
+        done
+
+        # Layout DSL parse + cross-validation. cdp_tmux_layout_parse dies on
+        # error; we first run it in a subshell to detect failure (and grab
+        # the message for context-wrapping), then re-run in the current shell
+        # to populate CDP_TMUX_LAYOUT_PANES / OPS for the caller.
+        local stderr_capture
+        if ! stderr_capture="$( (cdp_tmux_layout_parse "$layout") 2>&1 1>/dev/null )"; then
+            local detail="${stderr_capture#cdp: }"
+            if [[ "$detail" == "layout malformed: "* ]]; then
+                CDP_DIE_EXIT=65 cdp_die "config:${layout_lineno}: layout for tmux '${tmux_name}' of project '${proj}' is malformed: ${detail#layout malformed: }"
+            else
+                CDP_DIE_EXIT=65 cdp_die "config:${layout_lineno}: ${detail}"
+            fi
+        fi
+        cdp_tmux_layout_parse "$layout"
+        # cdp_tmux_layout_parse populated CDP_TMUX_LAYOUT_PANES and OPS;
+        # we only need the pane-name set here.
+        pane_referenced=()
+        local p
+        for p in "${CDP_TMUX_LAYOUT_PANES[@]}"; do
+            pane_referenced["$p"]=1
+        done
+
+        # Every layout reference must be a defined Pane.
+        for p in "${!pane_referenced[@]}"; do
+            if [[ -z "${CDP_TMUX_PANES[${action_key}$'\x1f'${p}]+x}" ]]; then
+                CDP_DIE_EXIT=65 cdp_die "config:${layout_lineno}: layout references undefined pane '${p}' in tmux '${tmux_name}' of project '${proj}'"
+            fi
+        done
+
+        # Every defined Pane must be referenced by the layout.
+        for pane_name in "${panes_in_block[@]}"; do
+            if [[ -z "${pane_referenced[$pane_name]+x}" ]]; then
+                pane_lineno="${CDP_TMUX_PANE_LINENOS[${action_key}$'\x1f'${pane_name}]}"
+                CDP_DIE_EXIT=65 cdp_die "config:${pane_lineno}: pane '${pane_name}' defined but not referenced in layout"
+            fi
+        done
     done
 }

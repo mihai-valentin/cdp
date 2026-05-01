@@ -18,7 +18,7 @@ cdp ls
 cdp rm myproject
 ```
 
-No npm, no composer, no Go binary, no Python. Bash 4+, coreutils, and an `flock` from util-linux are all you need at runtime.
+No npm, no composer, no Go binary, no Python. Bash 4+, coreutils, and an `flock` from util-linux are all you need at runtime. `tmux` is required only if you use [Tmux blocks](#tmux-integration); macros and bare jumps work without it.
 
 ## Install
 
@@ -45,7 +45,7 @@ eval "$(~/.local/bin/cdp init bash)"
 ### From a release tarball
 
 ```bash
-VERSION=1.0.2
+VERSION=1.1.0
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz.sha256
 sha256sum -c cdp-${VERSION}.tar.gz.sha256
@@ -85,7 +85,28 @@ cdp rm <label>              # remove an entry
 cdp ls                      # list projects (TAB-separated)
 ```
 
-`cdp ls` output is `LABEL\tPATH\tMACROS` — friendly to `awk`. Pipe to `column -t -s$'\t'` for a human-readable view. Macros are added by editing the config file directly; there is no `cdp add-macro` in V1.
+`cdp ls` output is `LABEL\tPATH\tACTIONS` — friendly to `awk`. Pipe to `column -t -s$'\t'` for a human-readable view. Each entry in `ACTIONS` is `<name>:<kind>` where `<kind>` is `macro` or `tmux`, in source order. Macros and tmux blocks are added by editing the config file directly; there is no `cdp add-macro` or `cdp add-tmux` in V1.1.
+
+### Tmux integration
+
+`cdp <label> <tmux-name>` materializes a per-project tmux pane layout (or attaches if the session already exists). Each `Tmux` block names its layout with a small DSL — `h:[…]` for side-by-side splits, `v:[…]` for stacked splits, with arbitrary nesting — and one `Pane <name>` block per pane carrying the commands to send.
+
+```text
+Project myapp
+    Path /home/user/myapp
+    Tmux dev
+        Layout h:[main | v:[test | logs]]
+        Pane main
+            Run pnpm dev
+        Pane test
+            Run pnpm test --watch
+        Pane logs
+            Run tail -f var/log/app.log
+```
+
+Then `cdp myapp dev` builds the layout (one `main` pane on the left; `test` over `logs` on the right) and attaches you. If the `myapp-dev` tmux session already exists, the user's running panes are kept as-is and `cdp` just attaches.
+
+Direction convention follows tmux: `h` = horizontal divider (panes side-by-side), `v` = vertical divider (panes stacked). The full grammar, walk semantics, and protocol live in [`docs/specs/tmux-layout.md`](docs/specs/tmux-layout.md).
 
 ### Shell shim
 
@@ -136,7 +157,7 @@ The formal grammar lives in [`docs/specs/config-format.md`](docs/specs/config-fo
 
 ## Status
 
-v1.0.2 — first stable release. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
+v1.1.0 — adds tmux layout integration on top of the v1.0.x stable surface. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
 
 ## Contributing
 

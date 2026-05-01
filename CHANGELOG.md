@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-01
+
+### Added
+
+- Tmux integration. `Tmux <name>` blocks inside a `Project` declare a per-project pane layout via a `Layout` mini-DSL (`h:[…]` for side-by-side, `v:[…]` for stacked, arbitrary nesting) plus one `Pane <name>` sub-block per pane carrying `Run` lines to send via `tmux send-keys`. `cdp <label> <tmux-name>` materializes the layout (or attaches if the session already exists) and switches the user into it. New canonical specification at `docs/specs/tmux-layout.md` covering the EBNF grammar, BFS-by-slot walk algorithm, plan-line protocol, attach/switch-client policy, and exit codes.
+- Layout DSL parser (`lib/tmux.sh`): pure-bash recursive-descent parser plus walk emitter. Validated by 24 bats cases covering happy paths (incl. the 2x2 grid that requires BFS-by-slot to produce the correct `[a, c, b, d]` walk order) and 12 error cases.
+- Tmux orchestrator (`libexec/cdp-tmux`): checks `tmux` is on `$PATH`, short-circuits to `tmux attach` when the session already exists, otherwise creates the session detached, walks the layout to issue `tmux split-window` calls, sends each pane's commands, then `exec tmux attach` (or `tmux switch-client` if invoked from inside an existing tmux session).
+- Shell-shim extension: the function emitted by `cdp init` accumulates `CDP_TMUX_SESSION`/`CDP_TMUX_LAYOUT`/`CDP_TMUX_PANE` plan lines and on `CDP_TMUX_ATTACH` hands off to `libexec/cdp-tmux` (absolute path baked in at install time).
+- Resolver dispatch unified through a per-project `CDP_ACTIONS` map; `Macro` and `Tmux` block names cannot collide within one project (parse-time error). `cdp ls` now exposes both with `:macro`/`:tmux` suffixes.
+- Bats coverage grew 34 → 90 (24 layout, 16 config-parse-tmux, 6 resolver, 10 orchestrator-against-stub-tmux, plus the V1 baseline).
+
+### Changed
+
+- `cdp ls` column header `MACROS` → `ACTIONS`. Each entry now carries a `:kind` suffix (`deploy:macro,dev:tmux`). The format is still TAB-separated and `awk`-friendly. Insertion order tracked via `CDP_ACTION_ORDER` so output mirrors config source order.
+- Resolver's two-arg unknown-name message: `'<b>' is not a macro of project '<a>'` → `'<b>' is not a macro or tmux of project '<a>'`.
+- `cdp --help` documents `cdp <label> <tmux-name>` and points to `docs/specs/tmux-layout.md`.
+- `Run` keyword's "outside" error message: `Run outside Macro block` → `Run outside Macro or Pane block`.
+- Install scripts (`Makefile` install target and `install.sh`) patch a fourth absolute path (`_CDP_TMUX`) into `libexec/cdp-init` and `libexec/cdp-tmux` alongside the existing `_CDP_LIBEXEC`/`_CDP_LIB`/`_CDP_BIN` patches.
+- New exit code `3` reserved for tmux-not-installed and foreign-tmux-server cases. Macro/V1 exit codes (1, 2, 64, 65, 70) keep their meanings.
+
 ## [1.0.2] - 2026-05-01
 
 ### Fixed
@@ -38,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions release workflow: pushing a `v*` tag publishes a `cdp-<version>.tar.gz` plus SHA-256 sidecar to GitHub Releases.
 - Formal specifications: `docs/specs/config-format.md` and `docs/specs/resolve-semantics.md`.
 
+[1.1.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.0
 [1.0.2]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.2
 [1.0.1]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.1
 [1.0.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.0

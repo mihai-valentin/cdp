@@ -42,7 +42,7 @@ cdp <a> <b>
 ```
 
 - If `<a>` is a reserved subcommand that takes one or more arguments (`add` takes two; `rm` takes one; `init` takes one; `ls` takes none), dispatch to `libexec/cdp-<a>` with `<b>...` as its arguments. Subcommand-specific arity is enforced inside each subcommand script.
-- Otherwise, `<a>` is a project label and `<b>` is a macro name. The resolver looks up `<a>` and verifies `<b>` is one of its macros.
+- Otherwise, `<a>` is a project label and `<b>` is the name of one of its **actions**. An action is either a `Macro` or (V1.1+) a `Tmux` block. The parser builds a per-project actions map keyed by `<label>\x1f<name>` whose value is the action kind (`macro` or `tmux`); since `Macro` and `Tmux` names cannot collide within a project (parse-time error — see [`config-format.md`](config-format.md) §7), the lookup is unambiguous. The resolver dispatches to the macro plan format (§4) for `macro` actions, or to the tmux plan format ([`tmux-layout.md`](tmux-layout.md) §6.2) for `tmux` actions.
 
 ### 2.4 Three or more arguments
 
@@ -60,16 +60,20 @@ The resolver (`libexec/cdp-resolve`) is the only piece whose stdout is **parsed 
 - **Success, jump + macro.** Stdout: the first line is `CDP_CD <abspath>`; subsequent lines are each `CDP_RUN <command>` in source order. Stderr: silent. Exit: `0`.
 - **Any error.** Stdout: empty. Stderr: a single line `cdp: <message>`. Exit: a non-zero code per §6.
 
-The `CDP_` prefix on every plan line is reserved for protocol use. Future versions may add new prefixes (e.g. `CDP_LAYOUT` for tmux integration in V2). Lines without a recognized prefix are a malformed plan and the shim must abort with a clear error.
+The `CDP_` prefix on every plan line is reserved for protocol use. V1.1 adds the `CDP_TMUX_*` family for tmux orchestration ([`tmux-layout.md`](tmux-layout.md) §6.2). Lines without a recognized prefix are a malformed plan and the shim must abort with a clear error.
 
-## 4. Plan format (v1)
+## 4. Plan format
 
-The plan format the resolver emits to stdout is a sequence of newline-terminated lines, each carrying one of the following prefixes:
+The plan format the resolver emits to stdout is a sequence of newline-terminated lines, each carrying one of the following prefixes. `CDP_CD ` and `CDP_RUN ` cover V1; the `CDP_TMUX_*` family was added in V1.1 and is specified in full in [`tmux-layout.md`](tmux-layout.md) §6.2.
 
 | Prefix | Body | Semantics |
 |---|---|---|
 | `CDP_CD ` | absolute path | The shim must `cd` into this path. There is exactly one `CDP_CD` line, and it is always the first line. |
-| `CDP_RUN ` | shell command | The shim must `eval` this command in the current shell after the `cd`. Zero-or-more `CDP_RUN` lines may follow the `CDP_CD` line, in execution order. |
+| `CDP_RUN ` | shell command | The shim must `eval` this command in the current shell after the `cd`. Zero-or-more `CDP_RUN` lines may follow the `CDP_CD` line, in execution order. Mutually exclusive with the `CDP_TMUX_*` family — a single plan is either a macro plan (`CDP_RUN` lines) or a tmux plan (`CDP_TMUX_*` lines), never both. |
+| `CDP_TMUX_SESSION ` | session name | V1.1. Tmux session to create or attach. Exactly one per tmux plan. |
+| `CDP_TMUX_LAYOUT ` | Layout DSL expression | V1.1. The layout tree to materialize. Exactly one per tmux plan. |
+| `CDP_TMUX_PANE ` | `<pane-name>\x1f<command>` | V1.1. One line per pane `Run`, in `(pane source order, run source order)`. Zero-or-more per tmux plan. |
+| `CDP_TMUX_ATTACH` | (none) | V1.1. End-of-plan marker for tmux plans; triggers shim handoff to `libexec/cdp-tmux`. Exactly one, last line. |
 
 The space after the prefix is part of the prefix; the body begins at the next byte. The body is taken verbatim from the path or `Run` value in the config — no quoting or escaping is performed by the resolver, and none is undone by the shim.
 
@@ -84,7 +88,7 @@ The emitted shim has the absolute path to **`bin/cdp`** baked in at `cdp init` t
 - **Subcommand passthrough** — for `cdp` (no args), `cdp help / --help / -h`, `cdp version / --version / -v`, `cdp add`, `cdp rm`, `cdp ls`, `cdp init`. The shim invokes `bin/cdp` directly with stdout connected to the terminal so the user sees usage text, listings, and the shim source for `init` exactly as the binary writes them.
 - **Plan protocol** — for everything else (`cdp <label>` and `cdp <label> <macro>`). The shim captures `bin/cdp`'s stdout, parses each line as `CDP_CD <path>` or `CDP_RUN <command>`, and applies them to the user's interactive shell.
 
-The literal shim source emitted (with `${_CDP_BIN}` substituted at emit time):
+The literal shim source emitted (with `${_CDP_BIN}` and `${_CDP_TMUX}` substituted at emit time; `${_CDP_TMUX}` is the absolute path to the installed `libexec/cdp-tmux`):
 
 ```bash
 cdp() {
@@ -95,6 +99,8 @@ cdp() {
             ;;
     esac
     local plan rc line
+    local _cdp_tmux_session="" _cdp_tmux_layout=""
+    local -a _cdp_tmux_panes=()
     plan="$(command '${_CDP_BIN}' "$@")"
     rc=$?
     if [[ $rc -ne 0 ]]; then
@@ -107,6 +113,19 @@ cdp() {
                 ;;
             'CDP_RUN '*)
                 eval "${line#CDP_RUN }" || return $?
+                ;;
+            'CDP_TMUX_SESSION '*)
+                _cdp_tmux_session="${line#CDP_TMUX_SESSION }"
+                ;;
+            'CDP_TMUX_LAYOUT '*)
+                _cdp_tmux_layout="${line#CDP_TMUX_LAYOUT }"
+                ;;
+            'CDP_TMUX_PANE '*)
+                _cdp_tmux_panes+=("${line#CDP_TMUX_PANE }")
+                ;;
+            'CDP_TMUX_ATTACH')
+                '${_CDP_TMUX}' "$_cdp_tmux_session" "$_cdp_tmux_layout" "${_cdp_tmux_panes[@]}"
+                return $?
                 ;;
             '')
                 ;;
@@ -126,30 +145,35 @@ Notes:
 - The shim aborts the macro on the first non-zero exit (`|| return $?` after each `cd` and `eval`). This is V1 default; a future flag may relax it.
 - The shim does **not** capture stderr — errors from the binary print to the user's terminal directly.
 - The reserved-subcommand list in the shim's `case` statement must match the dispatcher in `bin/cdp`. When V2 adds a subcommand, both get updated and users re-run `eval "$(cdp init bash)"` to pick up the new shim.
+- The `CDP_TMUX_*` accumulator pattern keeps the shim a thin protocol parser. Layout-DSL parsing, `tmux` invocation, and `attach`/`switch-client` selection live in `libexec/cdp-tmux`. The shim's `CDP_TMUX_ATTACH` branch is the single dispatch point — when a future version adds e.g. `CDP_TMUX_HOOK`, only the orchestrator needs to learn about it as long as the new line type is accumulated by the shim before `CDP_TMUX_ATTACH` fires.
 
 ## 6. Exit codes
 
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Unknown label, unknown macro, or runtime check failed (e.g. project path does not exist). |
+| `1` | Unknown label, unknown macro/tmux name, or runtime check failed (e.g. project path does not exist, tmux session creation failed). |
 | `2` | Config file missing or unreadable. |
+| `3` | V1.1+. `tmux` not on `$PATH`, or `$TMUX` points to a foreign tmux server. See [`tmux-layout.md`](tmux-layout.md) §8. |
 | `64` (`EX_USAGE`) | Bad CLI invocation: too many args, unknown init flavor, malformed `add` arguments. |
 | `65` (`EX_DATAERR`) | Config parse error (delegated from `lib/config.sh`). |
 | `70` | Shim received a malformed plan line — should not happen in normal operation; indicates a resolver bug. |
 
-The shim propagates the resolver's exit code unchanged.
+The shim propagates the resolver's (or orchestrator's) exit code unchanged.
 
 ## 7. Verbatim runtime error messages
 
 | # | Trigger | stderr message | Exit |
 |---|---|---|---|
 | 1 | First arg is neither a known label nor a known subcommand | `cdp: unknown label or subcommand: <a>` | `1` |
-| 2 | First arg is a label, second is not one of its macros | `cdp: '<b>' is not a macro of project '<a>'` | `1` |
+| 2 | First arg is a label, second is not one of its actions (macro or tmux) | `cdp: '<b>' is not a macro or tmux of project '<a>'` | `1` |
 | 3 | Resolver cannot find a config file | `cdp: config file not found at <path>` | `2` |
 | 4 | More positional arguments than the dispatch can accept | `cdp: too many arguments` | `64` |
 | 5 | `cdp init` called with no/wrong flavor argument | `cdp: 'init' takes one argument: bash \| zsh` | `64` |
 | 6 | Resolved project path doesn't exist on disk at jump time | `cdp: project path does not exist: <path>` | `1` |
+| 7 | V1.1. `tmux` not installed when an action of kind `tmux` is dispatched | `cdp: tmux not found on PATH` | `3` |
+| 8 | V1.1. Foreign `$TMUX` server | `cdp: $TMUX points to a different tmux server; cannot orchestrate from here` | `3` |
+| 9 | V1.1. Tmux session creation failed | `cdp: failed to create tmux session '<session>': <tmux's stderr>` | `1` |
 
 Error 6 is performed by the resolver after it has the path but **before** it prints the `CDP_CD` line. Failing loudly is preferable to `cd`'ing the user's shell to a nonexistent directory. Users who want the bare-jump even when the path may be missing can `cd` manually.
 
@@ -252,6 +276,27 @@ cdp() {
 ```
 
 The `RESOLVE_PATH` is the absolute path to the installed `cdp-resolve`, computed at `cdp init` time. Exit `0`.
+
+### Trace 5b — Jump + tmux (V1.1)
+
+See [`tmux-layout.md`](tmux-layout.md) §10 for the full end-to-end trace of `cdp myapp dev` against a `Tmux dev` block, including resolver stdout, the orchestrator's tmux invocations, and the existing-session attach short-circuit. The plan format and shim handoff are summarized here:
+
+```
+$ CDP_CONFIG=/tmp/cfg cdp myapp dev
+```
+
+Resolver stdout:
+```
+CDP_CD /home/user/myapp
+CDP_TMUX_SESSION myapp-dev
+CDP_TMUX_LAYOUT h:[main | v:[test | logs]]
+CDP_TMUX_PANE main\x1fpnpm dev
+CDP_TMUX_PANE test\x1fpnpm test --watch
+CDP_TMUX_PANE logs\x1ftail -f var/log/app.log
+CDP_TMUX_ATTACH
+```
+
+Shim accumulates the four `CDP_TMUX_*` line types and on `CDP_TMUX_ATTACH` invokes `libexec/cdp-tmux` with the session, layout, and pane records. The orchestrator either `tmux attach`es to an existing session or creates+attaches a fresh one.
 
 ### Trace 5 — No-args help
 

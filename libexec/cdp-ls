@@ -28,7 +28,7 @@ if [[ "${#CDP_PROJECTS[@]}" -eq 0 ]]; then
 fi
 
 if [[ -t 1 ]]; then
-    printf 'LABEL\tPATH\tMACROS\n'
+    printf 'LABEL\tPATH\tACTIONS\n'
 fi
 
 # Sort labels deterministically.
@@ -39,17 +39,20 @@ done < <(printf '%s\n' "${!CDP_PROJECTS[@]}" | LC_ALL=C sort)
 
 for label in "${labels[@]}"; do
     path="${CDP_PATHS[$label]}"
-    macros=()
-    if [[ "${#CDP_MACROS[@]}" -gt 0 ]]; then
-        while IFS= read -r key; do
+    # Walk CDP_ACTION_ORDER so actions print in source order, filtering by
+    # this project. Each entry becomes "<name>:<kind>" so consumers can tell
+    # macros from tmux blocks at a glance.
+    actions=()
+    if [[ "${#CDP_ACTION_ORDER[@]}" -gt 0 ]]; then
+        for key in "${CDP_ACTION_ORDER[@]}"; do
             if [[ "${key%%$'\x1f'*}" == "$label" ]]; then
-                macros+=("${key#*$'\x1f'}")
+                actions+=("${key#*$'\x1f'}:${CDP_ACTIONS[$key]}")
             fi
-        done < <(printf '%s\n' "${!CDP_MACROS[@]}" | LC_ALL=C sort)
+        done
     fi
-    macros_csv=""
-    if [[ "${#macros[@]}" -gt 0 ]]; then
-        macros_csv="$(IFS=,; printf '%s' "${macros[*]}")"
+    actions_csv=""
+    if [[ "${#actions[@]}" -gt 0 ]]; then
+        actions_csv="$(IFS=,; printf '%s' "${actions[*]}")"
     fi
-    printf '%s\t%s\t%s\n' "$label" "$path" "$macros_csv"
+    printf '%s\t%s\t%s\n' "$label" "$path" "$actions_csv"
 done

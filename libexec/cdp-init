@@ -11,6 +11,7 @@ shopt -s inherit_errexit
 _CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
 _CDP_LIBEXEC="${CDP_LIBEXEC:-$(cd -- "$(dirname -- "$0")" && pwd)}"
 _CDP_BIN="${CDP_BIN:-$(cd -- "$(dirname -- "$0")/../bin" && pwd)/cdp}"
+_CDP_TMUX="${CDP_TMUX:-${_CDP_LIBEXEC}/cdp-tmux}"
 
 # shellcheck source=lib/log.sh
 source "${_CDP_LIB}/log.sh"
@@ -26,8 +27,8 @@ case "$1" in
         ;;
 esac
 
-# Heredoc with ${_CDP_BIN} interpolated at emit time. All other $-references
-# are escaped so they remain literal in the user's shell.
+# Heredoc with ${_CDP_BIN} and ${_CDP_TMUX} interpolated at emit time. All
+# other $-references are escaped so they remain literal in the user's shell.
 cat <<CDP_SHIM_EOF
 cdp() {
     case "\${1:-}" in
@@ -37,6 +38,8 @@ cdp() {
             ;;
     esac
     local plan rc line
+    local _cdp_tmux_session="" _cdp_tmux_layout=""
+    local -a _cdp_tmux_panes=()
     plan="\$(command '${_CDP_BIN}' "\$@")"
     rc=\$?
     if [[ \$rc -ne 0 ]]; then
@@ -49,6 +52,19 @@ cdp() {
                 ;;
             'CDP_RUN '*)
                 eval "\${line#CDP_RUN }" || return \$?
+                ;;
+            'CDP_TMUX_SESSION '*)
+                _cdp_tmux_session="\${line#CDP_TMUX_SESSION }"
+                ;;
+            'CDP_TMUX_LAYOUT '*)
+                _cdp_tmux_layout="\${line#CDP_TMUX_LAYOUT }"
+                ;;
+            'CDP_TMUX_PANE '*)
+                _cdp_tmux_panes+=("\${line#CDP_TMUX_PANE }")
+                ;;
+            'CDP_TMUX_ATTACH')
+                '${_CDP_TMUX}' "\$_cdp_tmux_session" "\$_cdp_tmux_layout" "\${_cdp_tmux_panes[@]}"
+                return \$?
                 ;;
             '')
                 ;;

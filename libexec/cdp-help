@@ -4,16 +4,22 @@
 set -euo pipefail
 
 cat <<'USAGE'
-cdp — change-dir-project: jump to project directories, run per-project macros.
+cdp — change-dir-project: jump to project directories, run per-project macros
+                          or materialize per-project tmux layouts.
 
 Usage:
   cdp <label>                  Jump to the project's path.
   cdp <label> <macro>          Jump, then run the macro's commands.
+  cdp <label> <tmux-name>      Jump, then materialize the named tmux layout
+                               (or attach if the session already exists).
   cdp add <label> <path>       Add a project entry to the config.
   cdp rm <label>               Remove a project entry.
-  cdp ls                       List configured projects (label, path, macros).
-                               TAB-separated; pipe to `column -t -s$'\t'` for
-                               a human-readable view.
+  cdp ls                       List configured projects.
+                               Output is TAB-separated: LABEL, PATH, ACTIONS.
+                               ACTIONS is a comma-separated list of
+                               <name>:<kind> entries (kind = macro | tmux),
+                               in source order. Pipe to `column -t -s$'\t'`
+                               for a human-readable view.
   cdp init bash | zsh          Print the shell-shim function source.
                                Add to your rc file: eval "$(cdp init bash)"
   cdp --help                   This message.
@@ -21,5 +27,6 @@ Usage:
 
 Config file:
   Searched in order: $CDP_CONFIG, $XDG_CONFIG_HOME/cdp/config,
-  $HOME/.config/cdp/config. See docs/specs/config-format.md for the grammar.
+  $HOME/.config/cdp/config. See docs/specs/config-format.md for the macro
+  grammar and docs/specs/tmux-layout.md for the tmux/layout grammar.
 USAGE

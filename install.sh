@@ -80,6 +80,7 @@ for f in "${bindir}/cdp" "${libexecdir}"/cdp-*; do
         -e "s|^_CDP_LIBEXEC=.*\$|_CDP_LIBEXEC=\"\${CDP_LIBEXEC:-${libexecdir}}\"|" \
         -e "s|^_CDP_LIB=.*\$|_CDP_LIB=\"\${CDP_LIB:-${libdir}}\"|" \
         -e "s|^_CDP_BIN=.*\$|_CDP_BIN=\"\${CDP_BIN:-${bindir}/cdp}\"|" \
+        -e "s|^_CDP_TMUX=.*\$|_CDP_TMUX=\"\${CDP_TMUX:-${libexecdir}/cdp-tmux}\"|" \
         "$f"
     rm -f "${f}.bak"
 done
