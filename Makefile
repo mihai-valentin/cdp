@@ -57,9 +57,29 @@ install:
 			"$$f" && rm -f "$$f.bak"; \
 	done
 	@echo "installed cdp -> $(BINDIR)/cdp"
+	@echo "                 $(LIBEXECDIR)/"
+	@echo "                 $(LIBDIR)/"
 	@echo
-	@echo "# Add to your ~/.bashrc or ~/.zshrc:"
-	@echo "eval \"\$$($(BINDIR)/cdp init bash)\""
+	@echo "Next step: enable the shell shim."
+	@echo
+	@echo "  cdp ships as a binary plus a small shell function (the 'shim') that"
+	@echo "  has to live inside your interactive shell — a child process cannot"
+	@echo "  change its parent shell's working directory, so the shim is what"
+	@echo "  actually performs the 'cd' when you run 'cdp <label>'."
+	@echo
+	@echo "  1. Append this line to your shell rc file:"
+	@echo
+	@echo "       # ~/.bashrc  (or ~/.zshrc)"
+	@echo "       eval \"\$$($(BINDIR)/cdp init bash)\""
+	@echo
+	@echo "     One-liner:"
+	@echo "       echo 'eval \"\$$($(BINDIR)/cdp init bash)\"' >> ~/.bashrc"
+	@echo
+	@echo "  2. Open a new shell (or run: source ~/.bashrc)."
+	@echo
+	@echo "  3. Verify: 'type cdp' should report 'cdp is a function'."
+	@echo
+	@echo "Then try:  cdp add myproj /path/to/myproj  &&  cdp myproj"
 
 uninstall:
 	@rm -f $(BINDIR)/cdp

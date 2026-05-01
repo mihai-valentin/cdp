@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-05-01
+
+### Fixed
+
+- `install.sh` no longer requires GNU `make`. It previously shelled out to `make -C "$repo_root" install`, which contradicted the README's "Without `make`" install path. The script now performs the install natively (`mkdir`, `install -m`, and the same absolute-path `sed` patch the Makefile applies) and is byte-equivalent to `make install` in its output layout.
+
+### Changed
+
+- Post-install message (printed by both `make install` and `install.sh`) now lists every installed directory, explains *why* the shell shim is required (a child process cannot mutate its parent shell's cwd), gives both the `eval` snippet and a copy-paste `echo … >> ~/.bashrc` one-liner, and tells users how to activate (new shell or `source`) and verify (`type cdp` reports a function). The previous one-liner output left users guessing what to do with the eval line.
+
 ## [1.0.1] - 2026-04-30
 
 ### Fixed
@@ -28,5 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions release workflow: pushing a `v*` tag publishes a `cdp-<version>.tar.gz` plus SHA-256 sidecar to GitHub Releases.
 - Formal specifications: `docs/specs/config-format.md` and `docs/specs/resolve-semantics.md`.
 
+[1.0.2]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.2
 [1.0.1]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.1
 [1.0.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.0
