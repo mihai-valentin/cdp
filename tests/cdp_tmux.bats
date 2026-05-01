@@ -133,6 +133,17 @@ read_log() {
     [[ "$output" == *"tmux not found on PATH"* ]]
 }
 
+@test "regression: orchestrator runs tmux even when its stdin is a heredoc" {
+    # The shell shim wraps cdp-tmux invocations inside `done <<<"$plan"`,
+    # which redirects stdin to a here-string. Pre-fix, that caused
+    # `tmux attach` to die with "open terminal failed: not a terminal".
+    # Verify the orchestrator successfully reaches tmux even when its
+    # stdin is non-TTY (a pipe in this test, mimicking the heredoc shape).
+    setup_tmux_stub
+    printf 'unused\n' | "$(cdp_tmux_bin)" sess "main" "main$(printf '\037')echo hi"
+    grep -q '^tmux attach -t sess$' "$CDP_TEST_TMUX_LOG"
+}
+
 @test "multiple Run lines per pane batch into multiple send-keys" {
     setup_tmux_stub
     "$(cdp_tmux_bin)" sess "main" \

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-01
+
+### Fixed
+
+- `cdp <project> <tmux-name>` failed with `open terminal failed: not a terminal` whenever the shell shim invoked the orchestrator. The shim wraps its plan-line dispatch in `done <<<"$plan"`, which redirects stdin to a here-string for the entire loop body — including the `cdp-tmux` call that `exec`s `tmux attach`. Tmux refuses to attach without a tty on stdin. The orchestrator now reconnects to `/dev/tty` when its stdin is non-TTY (probed via subshell so contexts where `/dev/tty` exists as a node but cannot be opened — bats, headless CI — fall through cleanly without a redirect-failure exit). Regression test added in `tests/cdp_tmux.bats`.
+
 ## [1.1.0] - 2026-05-01
 
 ### Added
@@ -58,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions release workflow: pushing a `v*` tag publishes a `cdp-<version>.tar.gz` plus SHA-256 sidecar to GitHub Releases.
 - Formal specifications: `docs/specs/config-format.md` and `docs/specs/resolve-semantics.md`.
 
+[1.1.1]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.1
 [1.1.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.0
 [1.0.2]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.2
 [1.0.1]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.1

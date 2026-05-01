@@ -26,6 +26,19 @@ source "${_CDP_LIB}/log.sh"
 # shellcheck source=lib/tmux.sh
 source "${_CDP_LIB}/tmux.sh"
 
+# When invoked via the shell shim, our stdin is the shim's read-loop heredoc
+# (`done <<<"$plan"` scope), not the user's controlling terminal. Tmux's
+# `attach` and `switch-client` both refuse to run without a tty on stdin
+# ("open terminal failed: not a terminal"), so reconnect to the controlling
+# terminal here. The probe via subshell is necessary because /dev/tty exists
+# as a device node even in contexts (e.g. CI / bats) where it cannot be
+# opened — `[[ -e /dev/tty ]]` would return true and `exec </dev/tty` would
+# then fail with "No such device or address". If the open probe fails, we
+# leave stdin alone and let the eventual tmux call surface its own error.
+if [[ ! -t 0 ]] && ( : </dev/tty ) 2>/dev/null; then
+    exec </dev/tty
+fi
+
 if [[ $# -lt 2 ]]; then
     CDP_DIE_EXIT=70 cdp_die "internal error: cdp-tmux missing required arguments"
 fi
