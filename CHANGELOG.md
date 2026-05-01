@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-05-01
+
+### Fixed
+
+- v1.1.1's `/dev/tty` reconnect in the orchestrator surfaced a second tmux failure on WSL2: `open terminal failed: can't use /dev/tty`. WSL2 (and possibly other platforms with non-glibc tty layers) refuses tmux's later `/dev/tty` open when a parent process opened the same device first. The shim now preserves the user's real stdin fd via a block-level `{ … } 9<&0` redirection that scopes around the entire plan-dispatch loop, and the `CDP_TMUX_ATTACH` arm hands fd 9 to `cdp-tmux` via `<&9`. The orchestrator therefore never opens `/dev/tty` itself in the interactive path — tmux opens its own controlling terminal as it does in any normal `tmux attach` invocation. The `/dev/tty` fallback in `libexec/cdp-tmux` is retained as a best-effort path for direct (non-shim) invocations where stdin is non-TTY. Regression test in `tests/resolve.bats` asserts the emitted shim contains both `} 9<&0` and `<&9`. Spec updated at `docs/specs/resolve-semantics.md` §5.
+
 ## [1.1.1] - 2026-05-01
 
 ### Fixed
@@ -64,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions release workflow: pushing a `v*` tag publishes a `cdp-<version>.tar.gz` plus SHA-256 sidecar to GitHub Releases.
 - Formal specifications: `docs/specs/config-format.md` and `docs/specs/resolve-semantics.md`.
 
+[1.1.2]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.2
 [1.1.1]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.1
 [1.1.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.0
 [1.0.2]: https://github.com/mihai-valentin/cdp/releases/tag/v1.0.2

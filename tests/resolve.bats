@@ -84,6 +84,19 @@ write_config() {
     [[ "$output" == *"/bin/cdp"* ]]
 }
 
+@test "init bash shim preserves real stdin on fd 9 across the read loop" {
+    # Regression guard for v1.1.2: the read loop's `done <<<"$plan"` shadows
+    # fd 0 with the plan here-string, so the CDP_TMUX_ATTACH branch must
+    # invoke cdp-tmux with a duplicate of the user's real terminal fd.
+    # The shim does this via `{ … } 9<&0` (block-level) and `<&9` on the
+    # cdp-tmux call.
+    : > "$CDP_CONFIG"
+    run cdp init bash
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"} 9<&0"* ]]
+    [[ "$output" == *"<&9"* ]]
+}
+
 @test "init zsh emits same shim as bash for V1" {
     : > "$CDP_CONFIG"
     bash_out="$(cdp init bash)"

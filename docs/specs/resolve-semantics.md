@@ -106,37 +106,41 @@ cdp() {
     if [[ $rc -ne 0 ]]; then
         return $rc
     fi
-    while IFS= read -r line; do
-        case "$line" in
-            'CDP_CD '*)
-                cd "${line#CDP_CD }" || return $?
-                ;;
-            'CDP_RUN '*)
-                eval "${line#CDP_RUN }" || return $?
-                ;;
-            'CDP_TMUX_SESSION '*)
-                _cdp_tmux_session="${line#CDP_TMUX_SESSION }"
-                ;;
-            'CDP_TMUX_LAYOUT '*)
-                _cdp_tmux_layout="${line#CDP_TMUX_LAYOUT }"
-                ;;
-            'CDP_TMUX_PANE '*)
-                _cdp_tmux_panes+=("${line#CDP_TMUX_PANE }")
-                ;;
-            'CDP_TMUX_ATTACH')
-                '${_CDP_TMUX}' "$_cdp_tmux_session" "$_cdp_tmux_layout" "${_cdp_tmux_panes[@]}"
-                return $?
-                ;;
-            '')
-                ;;
-            *)
-                printf 'cdp: malformed plan line: %s\n' "$line" >&2
-                return 70
-                ;;
-        esac
-    done <<<"$plan"
+    {
+        while IFS= read -r line; do
+            case "$line" in
+                'CDP_CD '*)
+                    cd "${line#CDP_CD }" || return $?
+                    ;;
+                'CDP_RUN '*)
+                    eval "${line#CDP_RUN }" || return $?
+                    ;;
+                'CDP_TMUX_SESSION '*)
+                    _cdp_tmux_session="${line#CDP_TMUX_SESSION }"
+                    ;;
+                'CDP_TMUX_LAYOUT '*)
+                    _cdp_tmux_layout="${line#CDP_TMUX_LAYOUT }"
+                    ;;
+                'CDP_TMUX_PANE '*)
+                    _cdp_tmux_panes+=("${line#CDP_TMUX_PANE }")
+                    ;;
+                'CDP_TMUX_ATTACH')
+                    '${_CDP_TMUX}' "$_cdp_tmux_session" "$_cdp_tmux_layout" "${_cdp_tmux_panes[@]}" <&9
+                    return $?
+                    ;;
+                '')
+                    ;;
+                *)
+                    printf 'cdp: malformed plan line: %s\n' "$line" >&2
+                    return 70
+                    ;;
+            esac
+        done <<<"$plan"
+    } 9<&0
 }
 ```
+
+The `{ … } 9<&0` block-redirection saves the function's real stdin (the user's controlling terminal) on fd 9 for the duration of the plan-dispatch block. Inside the block, `done <<<"$plan"` shadows fd 0 with the plan-line here-string so the loop can iterate. The `CDP_TMUX_ATTACH` arm passes fd 9 to `cdp-tmux` via `<&9`, which is a duplicate of the original terminal fd. This is safer than having the orchestrator itself open `/dev/tty`: some platforms (notably WSL2) reject tmux's later use of `/dev/tty` if a parent process opened it first.
 
 Notes:
 

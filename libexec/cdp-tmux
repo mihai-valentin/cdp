@@ -26,15 +26,13 @@ source "${_CDP_LIB}/log.sh"
 # shellcheck source=lib/tmux.sh
 source "${_CDP_LIB}/tmux.sh"
 
-# When invoked via the shell shim, our stdin is the shim's read-loop heredoc
-# (`done <<<"$plan"` scope), not the user's controlling terminal. Tmux's
-# `attach` and `switch-client` both refuse to run without a tty on stdin
-# ("open terminal failed: not a terminal"), so reconnect to the controlling
-# terminal here. The probe via subshell is necessary because /dev/tty exists
-# as a device node even in contexts (e.g. CI / bats) where it cannot be
-# opened — `[[ -e /dev/tty ]]` would return true and `exec </dev/tty` would
-# then fail with "No such device or address". If the open probe fails, we
-# leave stdin alone and let the eventual tmux call surface its own error.
+# In the normal v1.1.1+ shim path, stdin is already a duplicate of the
+# user's terminal fd (the shim hands us fd 9 = saved real stdin). For
+# direct invocations where stdin is a non-tty pipe — and where /dev/tty
+# is openable AND not a stale fd that tmux would later reject — we fall
+# back to /dev/tty. Some platforms (notably WSL2) refuse tmux's later
+# /dev/tty open when we've opened it first, so this path is best-effort:
+# if it doesn't help, the subsequent tmux call surfaces its own error.
 if [[ ! -t 0 ]] && ( : </dev/tty ) 2>/dev/null; then
     exec </dev/tty
 fi

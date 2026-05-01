@@ -29,6 +29,15 @@ esac
 
 # Heredoc with ${_CDP_BIN} and ${_CDP_TMUX} interpolated at emit time. All
 # other $-references are escaped so they remain literal in the user's shell.
+#
+# The read loop is wrapped in `{ … } 9<&0` to preserve the user's real
+# stdin (the controlling terminal) on fd 9. Inside the loop, `done
+# <<<"$plan"` shadows fd 0 with the here-string so we can iterate plan
+# lines, but cdp-tmux needs a real terminal fd on stdin so its eventual
+# `tmux attach` can open the controlling tty cleanly. We hand it fd 9
+# via `<&9`, which is a duplicate of the original terminal fd — no
+# /dev/tty open from us (some platforms, notably WSL2, reject tmux's
+# subsequent use of /dev/tty when we've opened it first).
 cat <<CDP_SHIM_EOF
 cdp() {
     case "\${1:-}" in
@@ -45,34 +54,36 @@ cdp() {
     if [[ \$rc -ne 0 ]]; then
         return \$rc
     fi
-    while IFS= read -r line; do
-        case "\$line" in
-            'CDP_CD '*)
-                cd "\${line#CDP_CD }" || return \$?
-                ;;
-            'CDP_RUN '*)
-                eval "\${line#CDP_RUN }" || return \$?
-                ;;
-            'CDP_TMUX_SESSION '*)
-                _cdp_tmux_session="\${line#CDP_TMUX_SESSION }"
-                ;;
-            'CDP_TMUX_LAYOUT '*)
-                _cdp_tmux_layout="\${line#CDP_TMUX_LAYOUT }"
-                ;;
-            'CDP_TMUX_PANE '*)
-                _cdp_tmux_panes+=("\${line#CDP_TMUX_PANE }")
-                ;;
-            'CDP_TMUX_ATTACH')
-                '${_CDP_TMUX}' "\$_cdp_tmux_session" "\$_cdp_tmux_layout" "\${_cdp_tmux_panes[@]}"
-                return \$?
-                ;;
-            '')
-                ;;
-            *)
-                printf 'cdp: malformed plan line: %s\n' "\$line" >&2
-                return 70
-                ;;
-        esac
-    done <<<"\$plan"
+    {
+        while IFS= read -r line; do
+            case "\$line" in
+                'CDP_CD '*)
+                    cd "\${line#CDP_CD }" || return \$?
+                    ;;
+                'CDP_RUN '*)
+                    eval "\${line#CDP_RUN }" || return \$?
+                    ;;
+                'CDP_TMUX_SESSION '*)
+                    _cdp_tmux_session="\${line#CDP_TMUX_SESSION }"
+                    ;;
+                'CDP_TMUX_LAYOUT '*)
+                    _cdp_tmux_layout="\${line#CDP_TMUX_LAYOUT }"
+                    ;;
+                'CDP_TMUX_PANE '*)
+                    _cdp_tmux_panes+=("\${line#CDP_TMUX_PANE }")
+                    ;;
+                'CDP_TMUX_ATTACH')
+                    '${_CDP_TMUX}' "\$_cdp_tmux_session" "\$_cdp_tmux_layout" "\${_cdp_tmux_panes[@]}" <&9
+                    return \$?
+                    ;;
+                '')
+                    ;;
+                *)
+                    printf 'cdp: malformed plan line: %s\n' "\$line" >&2
+                    return 70
+                    ;;
+            esac
+        done <<<"\$plan"
+    } 9<&0
 }
 CDP_SHIM_EOF
