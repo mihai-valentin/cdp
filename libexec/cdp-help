@@ -20,6 +20,10 @@ Usage:
                                <name>:<kind> entries (kind = macro | tmux),
                                in source order. Pipe to `column -t -s$'\t'`
                                for a human-readable view.
+  cdp edit                     Open the config file in $VISUAL / $EDITOR
+                               (falling back to vi). Useful for adding
+                               Macro / Tmux blocks, which have no
+                               dedicated subcommand in V1.
   cdp init bash | zsh          Print the shell-shim function source.
                                Add to your rc file: eval "$(cdp init bash)"
   cdp --help                   This message.

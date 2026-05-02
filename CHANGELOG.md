@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-02
+
+### Added
+
+- `cdp edit` subcommand. Opens the resolved config file in the user's editor — `$VISUAL` if set, else `$EDITOR`, else `vi`. The editor is `exec`'d so it inherits the shell's controlling TTY directly. If the config file does not yet exist, the parent directory is created (`mkdir -p`) so the editor opens at the resolved path; the file is materialized on save. The shell shim emitted by `cdp init` fast-paths `edit` alongside `add | rm | ls | init | help | version` so the editor's TTY is never captured by the plan-pipeline `$(…)` capture used for jump and macro/tmux dispatch.
+- Reserved-name list extended with `edit` in both the parser (`lib/config.sh::_cdp_is_reserved`) and `cdp add` so the new subcommand cannot collide with a project / macro / tmux / pane label.
+- Tests: 6 new bats cases in `tests/subcommands.bats` (env-var resolution order, parent-dir auto-create, arg-count guard, vi fallback, reserved-label guard) and 1 regression test in `tests/resolve.bats` asserting `edit` is in the shim's fast-path case.
+
 ## [1.1.2] - 2026-05-01
 
 ### Fixed
@@ -70,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions release workflow: pushing a `v*` tag publishes a `cdp-<version>.tar.gz` plus SHA-256 sidecar to GitHub Releases.
 - Formal specifications: `docs/specs/config-format.md` and `docs/specs/resolve-semantics.md`.
 
+[1.2.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.2.0
 [1.1.2]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.2
 [1.1.1]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.1
 [1.1.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.0

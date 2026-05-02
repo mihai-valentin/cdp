@@ -45,7 +45,7 @@ eval "$(~/.local/bin/cdp init bash)"
 ### From a release tarball
 
 ```bash
-VERSION=1.1.2
+VERSION=1.2.0
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz.sha256
 sha256sum -c cdp-${VERSION}.tar.gz.sha256
@@ -83,9 +83,12 @@ cdp <label> <macro>
 cdp add <label> <path>      # add an entry
 cdp rm <label>              # remove an entry
 cdp ls                      # list projects (TAB-separated)
+cdp edit                    # open the config in $VISUAL / $EDITOR
 ```
 
-`cdp ls` output is `LABEL\tPATH\tACTIONS` — friendly to `awk`. Pipe to `column -t -s$'\t'` for a human-readable view. Each entry in `ACTIONS` is `<name>:<kind>` where `<kind>` is `macro` or `tmux`, in source order. Macros and tmux blocks are added by editing the config file directly; there is no `cdp add-macro` or `cdp add-tmux` in V1.1.
+`cdp ls` output is `LABEL\tPATH\tACTIONS` — friendly to `awk`. Pipe to `column -t -s$'\t'` for a human-readable view. Each entry in `ACTIONS` is `<name>:<kind>` where `<kind>` is `macro` or `tmux`, in source order. Macros and tmux blocks have no dedicated subcommand in V1 — use `cdp edit` (or any editor of your choice) to add or modify them.
+
+`cdp edit` resolves the editor in the standard `$VISUAL` → `$EDITOR` → `vi` chain. If the config file does not yet exist, the parent directory is created so the editor opens at the resolved path; the file is materialized on save.
 
 ### Tmux integration
 
@@ -157,7 +160,7 @@ The formal grammar lives in [`docs/specs/config-format.md`](docs/specs/config-fo
 
 ## Status
 
-v1.1.2 — tmux layout integration on top of the v1.0.x stable surface. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
+v1.2.0 — adds `cdp edit` on top of the v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
 
 ## Contributing
 

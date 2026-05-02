@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# libexec/cdp-edit — open the cdp config file in the user's editor.
+# No args. Editor resolution: $VISUAL → $EDITOR → vi.
+# If the config file does not yet exist, the parent directory is created
+# and the editor is invoked at the would-be path (editors handle the
+# "new file" case natively); the file is materialized only if the user
+# saves from within the editor.
+
+set -euo pipefail
+shopt -s inherit_errexit
+
+_CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
+
+# shellcheck source=lib/log.sh
+source "${_CDP_LIB}/log.sh"
+# shellcheck source=lib/config.sh
+source "${_CDP_LIB}/config.sh"
+
+if [[ $# -ne 0 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "edit: takes no arguments"
+fi
+
+config_path="$(cdp_config_path)"
+mkdir -p -- "$(dirname -- "$config_path")"
+
+editor="${VISUAL:-${EDITOR:-vi}}"
+
+# `editor` is intentionally word-split so users can set EDITOR='code --wait'
+# or similar. shellcheck would prefer a quoted expansion, but that breaks
+# the documented convention.
+# shellcheck disable=SC2086
+exec $editor "$config_path"

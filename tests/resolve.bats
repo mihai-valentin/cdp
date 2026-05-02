@@ -97,6 +97,16 @@ write_config() {
     [[ "$output" == *"<&9"* ]]
 }
 
+@test "init bash shim fast-paths the edit subcommand (no plan capture)" {
+    # The shim must dispatch `edit` straight through `command bin/cdp` —
+    # otherwise the editor's TTY output would be sucked into a $(…) capture
+    # and the editor would freeze or render to a buffer.
+    : > "$CDP_CONFIG"
+    run cdp init bash
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"|add|rm|ls|init|edit)"* ]]
+}
+
 @test "init zsh emits same shim as bash for V1" {
     : > "$CDP_CONFIG"
     bash_out="$(cdp init bash)"
