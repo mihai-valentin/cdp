@@ -165,6 +165,97 @@ EDITOR
     [[ "$output" == *"reserved"* ]]
 }
 
+@test "check on empty config exits 0 with OK on stderr" {
+    : > "$CDP_CONFIG"
+    run cdp check
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"config OK: $CDP_CONFIG"* ]]
+    [[ "$output" == *"(0 projects)"* ]]
+}
+
+@test "check on a valid multi-project config reports project count" {
+    mkdir -p "$BATS_TEST_TMPDIR/p"
+    cdp add a "$BATS_TEST_TMPDIR/p"
+    cdp add b "$BATS_TEST_TMPDIR/p"
+    cdp add c "$BATS_TEST_TMPDIR/p"
+    run cdp check
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"(3 projects)"* ]]
+}
+
+@test "check uses singular 'project' for a one-project config" {
+    mkdir -p "$BATS_TEST_TMPDIR/p"
+    cdp add solo "$BATS_TEST_TMPDIR/p"
+    run cdp check
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"(1 project)"* ]]
+    [[ "$output" != *"(1 projects)"* ]]
+}
+
+@test "check writes the OK line to stderr (stdout stays silent)" {
+    : > "$CDP_CONFIG"
+    stdout="${BATS_TEST_TMPDIR}/check.out"
+    stderr="${BATS_TEST_TMPDIR}/check.err"
+    "$CDP_BIN" check >"$stdout" 2>"$stderr"
+    rc=$?
+    [ "$rc" -eq 0 ]
+    [ ! -s "$stdout" ]
+    grep -q 'config OK' "$stderr"
+}
+
+@test "check on a missing config exits 2" {
+    rm -f "$CDP_CONFIG"
+    run cdp check
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"config file not found"* ]]
+}
+
+@test "check on a parse-error config exits 65" {
+    cat > "$CDP_CONFIG" <<'CFG'
+Project myproject
+    Path /tmp/myproject
+    Run uh-oh
+CFG
+    run cdp check
+    [ "$status" -eq 65 ]
+    [[ "$output" == *"config:3"* ]]
+    [[ "$output" == *"Run outside Macro or Pane block"* ]]
+}
+
+@test "check on a relative-path config exits 65" {
+    cat > "$CDP_CONFIG" <<'CFG'
+Project rel
+    Path not/absolute
+CFG
+    run cdp check
+    [ "$status" -eq 65 ]
+    [[ "$output" == *"Path must be absolute"* ]]
+}
+
+@test "check with arguments exits 64" {
+    : > "$CDP_CONFIG"
+    run cdp check unexpected
+    [ "$status" -eq 64 ]
+    [[ "$output" == *"takes no arguments"* ]]
+}
+
+@test "add with reserved label 'check' exits 64" {
+    mkdir -p "$BATS_TEST_TMPDIR/p"
+    run cdp add check "$BATS_TEST_TMPDIR/p"
+    [ "$status" -eq 64 ]
+    [[ "$output" == *"reserved"* ]]
+}
+
+@test "Project label 'check' is a parse error (reserved)" {
+    cat > "$CDP_CONFIG" <<'CFG'
+Project check
+    Path /tmp
+CFG
+    run cdp ls
+    [ "$status" -eq 65 ]
+    [[ "$output" == *"reserved"* ]]
+}
+
 @test "flock-stress: 10 parallel adds all land" {
     mkdir -p "$BATS_TEST_TMPDIR/p"
     : > "$CDP_CONFIG"

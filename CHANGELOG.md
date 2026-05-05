@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-05
+
+### Added
+
+- `cdp check` subcommand. Parses the resolved config file via the existing `cdp_config_load_or_die` path and reports validity. Exit `0` with a brief `cdp: config OK: <path> (<n> project[s])` line on stderr; exit `2` if the config file is missing or unreadable; exit `65` on parse error (the parser owns the `config:<line>: <message>` text). stdout stays silent on success so the command composes naturally as a precondition: `cdp check && cdp <label>`. Pairs with `cdp edit` for an edit-then-validate loop. Like `edit`, `check` is fast-pathed in the shim emitted by `cdp init` (alongside `add | rm | ls | init | edit | help | version`) so it bypasses the plan-pipeline `$(…)` capture used for jump and macro/tmux dispatch.
+- Reserved-name list extended with `check` in both the parser (`lib/config.sh::_cdp_is_reserved`) and `cdp add` so the new subcommand cannot collide with a project / macro / tmux / pane label.
+- Tests: 9 new bats cases in `tests/subcommands.bats` (empty-config OK, multi-project count, singular-vs-plural noun, stdout/stderr split, missing-config exit-2, parse-error exit-65, relative-path exit-65, arg-count guard, reserved-label guard at both `cdp add` and parser layers) and 1 regression test in `tests/resolve.bats` asserting `check` is in the shim's fast-path case.
+
 ## [1.2.0] - 2026-05-02
 
 ### Added
@@ -78,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions release workflow: pushing a `v*` tag publishes a `cdp-<version>.tar.gz` plus SHA-256 sidecar to GitHub Releases.
 - Formal specifications: `docs/specs/config-format.md` and `docs/specs/resolve-semantics.md`.
 
+[1.3.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.3.0
 [1.2.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.2.0
 [1.1.2]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.2
 [1.1.1]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.1

@@ -84,7 +84,7 @@ Projects without `Tmux` blocks parse and resolve exactly as in V1.
 The following identifiers are reserved and may not be used as a project label or as a macro name. A collision is a parse error.
 
 ```
-add  rm  ls  init  edit  --help  -h  --version  -v
+add  rm  ls  init  edit  check  --help  -h  --version  -v
 ```
 
 This list **may grow** in V2+ as new subcommands are introduced. Adding to it is a backward-incompatible change for users who happen to have a project labeled with the new name. The release notes for any such V2 release will name the affected reserved word; users with collisions must rename their project before upgrading. Documenting this constraint up-front lets V1 users avoid future-proof traps (don't name a project `which` if you ever expect to upgrade).

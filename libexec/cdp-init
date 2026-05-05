@@ -2,9 +2,10 @@
 # libexec/cdp-init — emit the shell-shim function source.
 # The shim wraps bin/cdp so its CDP_CD/CDP_RUN plans (for label and
 # label+macro invocations) execute in the user's interactive shell.
-# Subcommands (add / rm / ls / init / edit / help / version) bypass the
-# capture and run with stdout connected to the terminal — `edit` in
-# particular needs the unredirected TTY so the spawned $EDITOR can draw.
+# Subcommands (add / rm / ls / init / edit / check / help / version)
+# bypass the capture and run with stdout connected to the terminal —
+# `edit` in particular needs the unredirected TTY so the spawned
+# $EDITOR can draw.
 
 set -euo pipefail
 shopt -s inherit_errexit
@@ -42,7 +43,7 @@ esac
 cat <<CDP_SHIM_EOF
 cdp() {
     case "\${1:-}" in
-        ''|help|--help|-h|version|--version|-v|add|rm|ls|init|edit)
+        ''|help|--help|-h|version|--version|-v|add|rm|ls|init|edit|check)
             command '${_CDP_BIN}' "\$@"
             return \$?
             ;;

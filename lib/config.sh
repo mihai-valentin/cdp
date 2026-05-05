@@ -44,7 +44,7 @@ fi
 # Reserved subcommand list — labels and macro/tmux/pane names that are forbidden.
 _cdp_is_reserved() {
     case "$1" in
-        add|rm|ls|init|edit|help|version|--help|--version|-h|-v) return 0 ;;
+        add|rm|ls|init|edit|check|help|version|--help|--version|-h|-v) return 0 ;;
         *) return 1 ;;
     esac
 }

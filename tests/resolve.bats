@@ -104,7 +104,7 @@ write_config() {
     : > "$CDP_CONFIG"
     run cdp init bash
     [ "$status" -eq 0 ]
-    [[ "$output" == *"|add|rm|ls|init|edit)"* ]]
+    [[ "$output" == *"|add|rm|ls|init|edit|check)"* ]]
 }
 
 @test "init zsh emits same shim as bash for V1" {

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# libexec/cdp-check — parse the resolved config file and report validity.
+# No args. Exit 0 on success with a brief OK line on stderr; exit 2 if the
+# config file is missing or unreadable; exit 65 on parse error (the parser
+# itself owns the message via cdp_die).
+#
+# stdout is intentionally silent on success so callers can use the command
+# as a precondition: `if cdp check; then …`. The OK line goes to stderr to
+# match the rest of cdp's user-facing output convention.
+
+set -euo pipefail
+shopt -s inherit_errexit
+
+_CDP_LIB="${CDP_LIB:-$(cd -- "$(dirname -- "$0")/../lib" && pwd)}"
+
+# shellcheck source=lib/log.sh
+source "${_CDP_LIB}/log.sh"
+# shellcheck source=lib/config.sh
+source "${_CDP_LIB}/config.sh"
+
+if [[ $# -ne 0 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "check: takes no arguments"
+fi
+
+config_path="$(cdp_config_path)"
+cdp_config_load_or_die
+
+printf 'cdp: config OK: %s (%d project%s)\n' \
+    "$config_path" \
+    "${#CDP_PROJECTS[@]}" \
+    "$( [[ "${#CDP_PROJECTS[@]}" -eq 1 ]] || printf 's' )" \
+    >&2

@@ -13,7 +13,7 @@ A Unix process cannot change the working directory of its parent. When you run a
 The reserved subcommand list is:
 
 ```
-add  rm  ls  init  edit  help  --help  -h  version  --version  -v
+add  rm  ls  init  edit  check  help  --help  -h  version  --version  -v
 ```
 
 Note that `help` and `version` (without dashes) are also recognized as aliases of `--help` and `--version`.
@@ -41,7 +41,7 @@ cdp <a>
 cdp <a> <b>
 ```
 
-- If `<a>` is a reserved subcommand that takes one or more arguments (`add` takes two; `rm` takes one; `init` takes one; `ls` and `edit` take none), dispatch to `libexec/cdp-<a>` with `<b>...` as its arguments. Subcommand-specific arity is enforced inside each subcommand script.
+- If `<a>` is a reserved subcommand that takes one or more arguments (`add` takes two; `rm` takes one; `init` takes one; `ls`, `edit`, and `check` take none), dispatch to `libexec/cdp-<a>` with `<b>...` as its arguments. Subcommand-specific arity is enforced inside each subcommand script.
 - Otherwise, `<a>` is a project label and `<b>` is the name of one of its **actions**. An action is either a `Macro` or (V1.1+) a `Tmux` block. The parser builds a per-project actions map keyed by `<label>\x1f<name>` whose value is the action kind (`macro` or `tmux`); since `Macro` and `Tmux` names cannot collide within a project (parse-time error — see [`config-format.md`](config-format.md) §7), the lookup is unambiguous. The resolver dispatches to the macro plan format (§4) for `macro` actions, or to the tmux plan format ([`tmux-layout.md`](tmux-layout.md) §6.2) for `tmux` actions.
 
 ### 2.4 Three or more arguments
@@ -85,7 +85,7 @@ If the body contains a literal newline, the plan is malformed. (Path values cann
 
 The emitted shim has the absolute path to **`bin/cdp`** baked in at `cdp init` time, so the user does not need to add anything to `PATH`. The shim has two paths:
 
-- **Subcommand passthrough** — for `cdp` (no args), `cdp help / --help / -h`, `cdp version / --version / -v`, `cdp add`, `cdp rm`, `cdp ls`, `cdp init`, `cdp edit`. The shim invokes `bin/cdp` directly with stdout connected to the terminal so the user sees usage text, listings, the shim source for `init`, and (critically for `edit`) the spawned editor's UI exactly as the underlying program writes them.
+- **Subcommand passthrough** — for `cdp` (no args), `cdp help / --help / -h`, `cdp version / --version / -v`, `cdp add`, `cdp rm`, `cdp ls`, `cdp init`, `cdp edit`, `cdp check`. The shim invokes `bin/cdp` directly with stdout connected to the terminal so the user sees usage text, listings, the shim source for `init`, and (critically for `edit`) the spawned editor's UI exactly as the underlying program writes them.
 - **Plan protocol** — for everything else (`cdp <label>` and `cdp <label> <macro>`). The shim captures `bin/cdp`'s stdout, parses each line as `CDP_CD <path>` or `CDP_RUN <command>`, and applies them to the user's interactive shell.
 
 The literal shim source emitted (with `${_CDP_BIN}` and `${_CDP_TMUX}` substituted at emit time; `${_CDP_TMUX}` is the absolute path to the installed `libexec/cdp-tmux`):
@@ -93,7 +93,7 @@ The literal shim source emitted (with `${_CDP_BIN}` and `${_CDP_TMUX}` substitut
 ```bash
 cdp() {
     case "${1:-}" in
-        ''|help|--help|-h|version|--version|-v|add|rm|ls|init|edit)
+        ''|help|--help|-h|version|--version|-v|add|rm|ls|init|edit|check)
             command '${_CDP_BIN}' "$@"
             return $?
             ;;
@@ -311,6 +311,7 @@ Usage: cdp <label> [<macro>]
        cdp rm <label>
        cdp ls
        cdp edit
+       cdp check
        cdp init bash | zsh
        cdp --help | --version
 $ echo $?

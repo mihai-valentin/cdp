@@ -24,7 +24,7 @@ if ! [[ "$label" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
     CDP_DIE_EXIT=64 cdp_die "add: invalid label: '${label}'"
 fi
 case "$label" in
-    add|rm|ls|init|edit|help|version|--help|--version|-h|-v)
+    add|rm|ls|init|edit|check|help|version|--help|--version|-h|-v)
         CDP_DIE_EXIT=64 cdp_die "add: label '${label}' is reserved"
         ;;
 esac

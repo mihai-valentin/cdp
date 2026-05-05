@@ -45,7 +45,7 @@ eval "$(~/.local/bin/cdp init bash)"
 ### From a release tarball
 
 ```bash
-VERSION=1.2.0
+VERSION=1.3.0
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz.sha256
 sha256sum -c cdp-${VERSION}.tar.gz.sha256
@@ -84,11 +84,14 @@ cdp add <label> <path>      # add an entry
 cdp rm <label>              # remove an entry
 cdp ls                      # list projects (TAB-separated)
 cdp edit                    # open the config in $VISUAL / $EDITOR
+cdp check                   # parse the config and report validity
 ```
 
 `cdp ls` output is `LABEL\tPATH\tACTIONS` — friendly to `awk`. Pipe to `column -t -s$'\t'` for a human-readable view. Each entry in `ACTIONS` is `<name>:<kind>` where `<kind>` is `macro` or `tmux`, in source order. Macros and tmux blocks have no dedicated subcommand in V1 — use `cdp edit` (or any editor of your choice) to add or modify them.
 
 `cdp edit` resolves the editor in the standard `$VISUAL` → `$EDITOR` → `vi` chain. If the config file does not yet exist, the parent directory is created so the editor opens at the resolved path; the file is materialized on save.
+
+`cdp check` runs the parser over the resolved config and reports whether it is valid — exit `0` and a brief OK line on stderr on success, exit `2` if the file is missing or unreadable, exit `65` with the parser's `config:<line>: <message>` on a parse error. Pairs naturally with `cdp edit` for an edit-then-validate loop, and is safe to use as a precondition: `cdp check && cdp <label>`.
 
 ### Tmux integration
 
@@ -160,7 +163,7 @@ The formal grammar lives in [`docs/specs/config-format.md`](docs/specs/config-fo
 
 ## Status
 
-v1.2.0 — adds `cdp edit` on top of the v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
+v1.3.0 — adds `cdp check` (config validator) on top of the v1.2.x edit / v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
 
 ## Contributing
 

@@ -24,6 +24,11 @@ Usage:
                                (falling back to vi). Useful for adding
                                Macro / Tmux blocks, which have no
                                dedicated subcommand in V1.
+  cdp check                    Parse the config file and report whether
+                               it is valid. Exit 0 on success, 2 if the
+                               file is missing/unreadable, 65 on parse
+                               error. Pair with `cdp edit` for a quick
+                               edit-then-validate loop.
   cdp init bash | zsh          Print the shell-shim function source.
                                Add to your rc file: eval "$(cdp init bash)"
   cdp --help                   This message.
