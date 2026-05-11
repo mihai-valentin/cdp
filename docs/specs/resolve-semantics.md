@@ -42,7 +42,11 @@ cdp <a> <b>
 ```
 
 - If `<a>` is a reserved subcommand that takes one or more arguments (`add` takes two; `rm` takes one; `init` takes one; `ls`, `edit`, and `check` take none), dispatch to `libexec/cdp-<a>` with `<b>...` as its arguments. Subcommand-specific arity is enforced inside each subcommand script.
-- Otherwise, `<a>` is a project label and `<b>` is the name of one of its **actions**. An action is either a `Macro` or (V1.1+) a `Tmux` block. The parser builds a per-project actions map keyed by `<label>\x1f<name>` whose value is the action kind (`macro` or `tmux`); since `Macro` and `Tmux` names cannot collide within a project (parse-time error — see [`config-format.md`](config-format.md) §7), the lookup is unambiguous. The resolver dispatches to the macro plan format (§4) for `macro` actions, or to the tmux plan format ([`tmux-layout.md`](tmux-layout.md) §6.2) for `tmux` actions.
+- Otherwise, `<a>` is a project label and `<b>` is the name of one of its **actions**. An action is either a `Macro` or (V1.1+) a `Tmux` block. The parser builds a per-project actions map keyed by `<label>\x1f<name>` whose value is the action kind (`macro` or `tmux`); since `Macro` and `Tmux` names cannot collide within a project (parse-time error — see [`config-format.md`](config-format.md) §7), the lookup is unambiguous.
+
+  **Inherited group macros (V1.4):** if `<label>\x1f<name>` is not in the per-project actions map, the resolver falls back to the project's group (recorded in `CDP_PROJECT_GROUP[<label>]`) and looks up `<group>\x1f<name>` in `CDP_GROUP_MACROS`. A hit treats the action as a `macro` whose `Run` lines come from `CDP_GROUP_RUNS_<group>_<name>`. Project-local actions always shadow group-level ones — the fallback only fires when the project did not declare the name itself. A miss in both maps produces the standard `'<b>' is not a macro or tmux of project '<a>'` error (exit `1`).
+
+  The resolver dispatches to the macro plan format (§4) for `macro` actions (project-local OR inherited), or to the tmux plan format ([`tmux-layout.md`](tmux-layout.md) §6.2) for `tmux` actions.
 
 ### 2.4 Three or more arguments
 

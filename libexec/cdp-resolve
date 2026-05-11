@@ -39,14 +39,31 @@ fi
 
 name="$2"
 key="${label}"$'\x1f'"${name}"
+
+# V1.4 inheritance: if the project has no own action by this name, try the
+# group-level macros for the project's group (if any). Project-level actions
+# always shadow group-level ones — the lookup never falls through when the
+# project declared the same name itself.
+inherited_group=""
 if [[ -z "${CDP_ACTIONS[$key]+x}" ]]; then
-    cdp_die "'${name}' is not a macro or tmux of project '${label}'"
+    group="${CDP_PROJECT_GROUP[$label]:-}"
+    if [[ -n "$group" && -n "${CDP_GROUP_MACROS[${group}$'\x1f'${name}]+x}" ]]; then
+        inherited_group="$group"
+    else
+        cdp_die "'${name}' is not a macro or tmux of project '${label}'"
+    fi
 fi
 
-case "${CDP_ACTIONS[$key]}" in
+action_kind="${CDP_ACTIONS[$key]:-macro}"
+
+case "$action_kind" in
     macro)
         printf 'CDP_CD %s\n' "$path"
-        arr_name="CDP_RUNS_${label//-/_}_${name//-/_}"
+        if [[ -n "$inherited_group" ]]; then
+            arr_name="CDP_GROUP_RUNS_${inherited_group//-/_}_${name//-/_}"
+        else
+            arr_name="CDP_RUNS_${label//-/_}_${name//-/_}"
+        fi
         # Indirect array expansion for a dynamic name.
         # shellcheck disable=SC2154,SC2294
         eval "runs=(\"\${${arr_name}[@]}\")"

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-11
+
+### Added
+
+- `Group <label>` block in the config grammar — wraps a set of nested `Project` blocks and declares `Macro`s that are inherited by every member project at action-lookup time. A project's own same-named `Macro` shadows the inherited one; the resolver tries the per-project `CDP_ACTIONS` map first, then falls back to `CDP_GROUP_MACROS[<group>\x1f<name>]` only when no project-local action by that name exists. Hits never cross groups: a project belongs to **exactly one** group, determined by lexical nesting (no `In <group>` declaration in V1.4 — multi-group membership is deferred). Group-level macros run with the same `CDP_CD <project-path>` + `CDP_RUN <line>` plan format as project-level macros, so the shim, `eval`-into-shell semantics, and abort-on-first-error rules all carry over unchanged.
+- `Group` is **macro-only**: `Path`, `Tmux`, and nested `Group` lines inside a `Group` block are parse errors (`Path inside Group block`, `Tmux inside Group block`, `nested Group not allowed`). Path-prefix support (a `Workspace <abspath>` declaration on the `Group` so members can use relative `Path`s) and group-level `Tmux` blocks are explicitly deferred to V1.5+.
+- Indentation tracking in `lib/config.sh`: the parser now records each line's leading-whitespace byte count and stores it on the open `Group` so it can detect (a) a deeper-indented Project as a member of the group, (b) a shallower-or-equal-indented Project as the group's terminator, and (c) a deeper-indented Group as illegal nesting. A `Project` line at column 0 still parses as an ungrouped top-level project, so legacy configs without `Group` blocks parse byte-identically to V1.3.x.
+- `cdp ls` annotates inherited entries in the `ACTIONS` column with a trailing `@<group>` suffix (e.g. `claude:macro@xlnf`). Project-local actions keep the plain `:macro` / `:tmux` suffix; shadowed group entries are suppressed (no double-listing under the project they're shadowed from). The TAB-separated three-column layout is unchanged so existing `awk` consumers keep working.
+- New globals populated by the parser for downstream consumers: `CDP_GROUPS` (assoc: group-name → 1), `CDP_PROJECT_GROUP` (assoc: project-label → group-name, only for grouped projects), `CDP_GROUP_MACROS` (assoc: `group\x1fmacro` → 1), and `CDP_GROUP_RUNS_<group>_<macro>` (indexed: Run lines, source order). Hyphens in identifiers are mapped to underscores for the array-name portion only, matching the existing convention for `CDP_RUNS_*` and `CDP_TMUX_PANE_RUNS_*`.
+- Tests: 20 new bats cases in `tests/group.bats` covering parsing (Group label syntax, duplicates, reserved-name collision, bare `Group` keyword, empty Group, Group-only / Project-only / mixed configs), forbidden constructs (`Path` / `Tmux` inside Group, nested Group, duplicate Macro within a Group), inheritance semantics (single-member, multi-member, multi-Run macro), override (project-local shadows group), negative cases (ungrouped Project does NOT see Group macros; `Macro outside Project or Group block`), `cdp ls` annotation (suffix appears for inherited, suppressed for shadowed, absent for ungrouped), and coexistence with `Tmux` blocks inside a grouped Project. Total bats coverage now 129 (up from 109).
+
+### Changed
+
+- `Macro` keyword's "outside" error message broadened from `Macro outside Project block` to `Macro outside Project or Group block` to reflect that V1.4 accepts `Macro` directly under `Group` as well as under `Project`. Existing tests asserting the legacy substring still pass because the new message is a superset.
+
 ## [1.3.0] - 2026-05-05
 
 ### Added
@@ -86,6 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions release workflow: pushing a `v*` tag publishes a `cdp-<version>.tar.gz` plus SHA-256 sidecar to GitHub Releases.
 - Formal specifications: `docs/specs/config-format.md` and `docs/specs/resolve-semantics.md`.
 
+[1.4.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.4.0
 [1.3.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.3.0
 [1.2.0]: https://github.com/mihai-valentin/cdp/releases/tag/v1.2.0
 [1.1.2]: https://github.com/mihai-valentin/cdp/releases/tag/v1.1.2

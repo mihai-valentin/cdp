@@ -43,10 +43,33 @@ for label in "${labels[@]}"; do
     # this project. Each entry becomes "<name>:<kind>" so consumers can tell
     # macros from tmux blocks at a glance.
     actions=()
+    own_names=()
     if [[ "${#CDP_ACTION_ORDER[@]}" -gt 0 ]]; then
         for key in "${CDP_ACTION_ORDER[@]}"; do
             if [[ "${key%%$'\x1f'*}" == "$label" ]]; then
-                actions+=("${key#*$'\x1f'}:${CDP_ACTIONS[$key]}")
+                name="${key#*$'\x1f'}"
+                actions+=("${name}:${CDP_ACTIONS[$key]}")
+                own_names+=("$name")
+            fi
+        done
+    fi
+    # V1.4: append macros inherited from the project's Group, suffixed
+    # with @<group>. Project-local actions shadow group ones with the same
+    # name — skip those.
+    group="${CDP_PROJECT_GROUP[$label]:-}"
+    if [[ -n "$group" ]]; then
+        for gkey in "${!CDP_GROUP_MACROS[@]}"; do
+            [[ "${gkey%%$'\x1f'*}" == "$group" ]] || continue
+            mname="${gkey#*$'\x1f'}"
+            shadowed=0
+            for n in ${own_names[@]+"${own_names[@]}"}; do
+                if [[ "$n" == "$mname" ]]; then
+                    shadowed=1
+                    break
+                fi
+            done
+            if [[ "$shadowed" -eq 0 ]]; then
+                actions+=("${mname}:macro@${group}")
             fi
         done
     fi

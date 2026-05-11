@@ -4,7 +4,7 @@ This document is the canonical specification of the `cdp` config-file format. It
 
 ## 1. Overview
 
-`cdp` reads a single human-edited config file that lists **projects** (each with an absolute path) and, optionally, **macros** under each project (each macro is a sequence of shell command lines that run after `cd`'ing into the project's path). The format is SSH-config-inspired: indentation-based blocks, case-insensitive keywords, `#` line comments. There is no escape syntax, no quoting, and no string-interpolation step at parse time — the parser is intentionally trivial.
+`cdp` reads a single human-edited config file that lists **projects** (each with an absolute path) and, optionally, **macros** under each project (each macro is a sequence of shell command lines that run after `cd`'ing into the project's path). Projects may be grouped under a top-level **`Group`** block (V1.4) that declares macros shared by every nested project — a project's own macro of the same name shadows the inherited one. The format is SSH-config-inspired: indentation-based blocks, case-insensitive keywords, `#` line comments. There is no escape syntax, no quoting, and no string-interpolation step at parse time — the parser is intentionally trivial.
 
 The file lives at `${CDP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/cdp/config}`. The parser does not invent a default file if the path is absent; absence is reported by the resolver, not the parser.
 
@@ -17,22 +17,24 @@ The file lives at `${CDP_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/cdp/config}`.
 
 ## 3. Keywords and case
 
-The keywords are: `Project`, `Path`, `Macro`, `Run`, `Tmux`, `Layout`, `Pane`. The first four cover V1; `Tmux`, `Layout`, and `Pane` were added in V1.1 — see [`tmux-layout.md`](tmux-layout.md) for the full tmux-block specification.
+The keywords are: `Project`, `Path`, `Macro`, `Run`, `Tmux`, `Layout`, `Pane`, `Group`. The first four cover V1; `Tmux`, `Layout`, and `Pane` were added in V1.1 — see [`tmux-layout.md`](tmux-layout.md) for the full tmux-block specification. `Group` was added in V1.4 — see §5.6.
 
-Keywords are **case-insensitive**: `project`, `Project`, `PROJECT` are all valid spellings of the same keyword. The canonical form used in this document and in error messages is **title-case** (`Project`, `Path`, `Macro`, `Run`, `Tmux`, `Layout`, `Pane`).
+Keywords are **case-insensitive**: `project`, `Project`, `PROJECT` are all valid spellings of the same keyword. The canonical form used in this document and in error messages is **title-case** (`Project`, `Path`, `Macro`, `Run`, `Tmux`, `Layout`, `Pane`, `Group`).
 
-Identifiers (project labels, macro names, tmux-block names, pane names) are **case-sensitive**. `Project Foo` and `Project foo` are two different projects.
+Identifiers (project labels, macro names, tmux-block names, pane names, group labels) are **case-sensitive**. `Project Foo` and `Project foo` are two different projects.
 
 ## 4. Indentation rules
 
-- A `Project <label>` line **must** start at column 0 (no leading whitespace).
+- A `Project <label>` line at column 0 starts a top-level (ungrouped) project. A `Project` line strictly more indented than an enclosing `Group` line is a member of that group (V1.4). The parser uses the leading-whitespace **byte count** to decide membership: when a `Project` is encountered at indent ≤ the enclosing `Group`'s indent, the group context is closed before processing.
+- A `Group <label>` line (V1.4) is conventionally placed at column 0. A nested `Group` (a deeper-indented `Group` line inside an already-open `Group`) is a parse error.
 - A `Path`, `Macro`, or `Tmux` line inside a `Project` block **must** be more indented than its parent `Project` line. Any positive amount of leading whitespace works.
+- A `Macro` line inside a `Group` block (and outside any `Project`) declares a group-level macro inherited by every member project (V1.4). It **must** be more indented than its parent `Group` line.
 - A `Run` line inside a `Macro` block **must** be more indented than its parent `Macro` line.
 - A `Layout` or `Pane` line inside a `Tmux` block **must** be more indented than its parent `Tmux` line.
 - A `Run` line inside a `Pane` block (V1.1 — tmux integration) **must** be more indented than its parent `Pane` line.
 - Indentation may mix tabs and spaces. The parser does not assume a tab width. The rule is purely "strictly more leading whitespace bytes than the parent line." Two child lines under the same parent need not match each other — only each must be deeper than the parent.
 
-In practice, a 4-space indent for `Path`/`Macro` and an 8-space indent for `Run` is recommended.
+In practice, a 4-space indent for `Path`/`Macro`/`Project`-inside-`Group` and an 8-space indent for `Run`/inside-grouped-`Project` is recommended.
 
 ## 5. Value rules per keyword
 
@@ -79,6 +81,58 @@ These three keywords define a tmux-orchestrated pane layout for a project. They 
 
 Projects without `Tmux` blocks parse and resolve exactly as in V1.
 
+### 5.6 `Group <name>` (V1.4)
+
+A `Group` block declares a collection of projects that share **macros**. Group-level macros are inherited by every member project at action-lookup time; a project's own macro of the same name shadows the inherited one (project-local always wins).
+
+- One argument: the group label.
+- Label syntax: `[a-zA-Z][a-zA-Z0-9_-]*` — same as project labels.
+- Group labels must be unique across the config (parse error on duplicate).
+- Group labels must not collide with reserved subcommands (see §6).
+- Group labels live in a **separate namespace** from project labels: `Group xlnf` and `Project xlnf` are both legal — groups are never jump targets, so there is no resolver ambiguity at `cdp xlnf`.
+- A `Group` block **only** carries `Macro` children (each with their own `Run` lines). `Path`, `Tmux`, `Layout`, `Pane`, and nested `Group` are forbidden inside a `Group` block (parse errors — see §7).
+- A `Group` block may contain zero or more `Project` blocks, each strictly more indented than the `Group` line. A project nested under a `Group` becomes a member of that group (the parser records `<project> → <group>` in `CDP_PROJECT_GROUP`).
+- A project is a member of **at most one** group: nesting determines membership, and a project cannot be in two groups simultaneously. Add a project to a different group by moving it to that group's block.
+- An empty `Group` (no `Macro`s, no `Project`s) parses successfully — it has no effect, but it is not an error.
+
+Inheritance is **action-name based**, not config-line based. The resolver builds the per-project action map by:
+
+1. Looking up `<label>\x1f<name>` in `CDP_ACTIONS` (project-local macros and tmux blocks). If found → use it.
+2. Otherwise, if the project has a recorded group, looking up `<group>\x1f<name>` in `CDP_GROUP_MACROS`. If found → use the group-level macro's `Run` lines.
+3. Otherwise → `'<name>' is not a macro or tmux of project '<label>'`.
+
+`cdp ls` annotates inherited entries in the `ACTIONS` column with a trailing `@<group>` suffix (e.g. `claude:macro@xlnf`) so users can tell at a glance which actions are local and which are inherited.
+
+Group-level macros are pure inheritance: there is no `Group`-level `Tmux`, no `Group`-level `Path` prefix (deferred to V1.5+), and no multi-group membership.
+
+#### Worked example
+
+```text
+Group xlnf
+    Macro claude
+        Run ../xlnfclaude -c
+
+    Project xlnf
+        Path /home/user/xlnf
+        Macro claude              # shadows the group's claude
+            Run ./xlnfclaude -c
+
+    Project cdp
+        Path /home/user/xlnf/cdp
+                                  # inherits claude from xlnf
+
+    Project shawarma
+        Path /home/user/xlnf/shawarma
+                                  # inherits claude from xlnf
+
+Project nexus                     # column 0 — outside the group
+    Path /home/user/nexus
+    Macro claude
+        Run claude -c             # unrelated to group's claude
+```
+
+`cdp cdp claude` runs `../xlnfclaude -c`. `cdp xlnf claude` runs `./xlnfclaude -c` (project shadows). `cdp nexus claude` runs `claude -c` (no group affiliation).
+
 ## 6. Reserved subcommands
 
 The following identifiers are reserved and may not be used as a project label or as a macro name. A collision is a parse error.
@@ -119,6 +173,16 @@ V1.1 (tmux) additions:
 - A `Pane` block whose name is not referenced by the parent `Tmux`'s `Layout` expression.
 - A `Layout` expression that references the same pane name more than once.
 
+V1.4 (Group) additions:
+
+- Duplicate `Group` label.
+- A `Group` label that matches a reserved subcommand.
+- Duplicate `Macro` name within the same `Group`.
+- A `Macro` line outside any `Project` AND outside any `Group` block.
+- A `Path` line inside a `Group` block (not inside a nested `Project`).
+- A `Tmux` line inside a `Group` block (not inside a nested `Project`).
+- A nested `Group` (a `Group` line strictly more indented than an enclosing `Group`).
+
 ## 8. Error reporting
 
 Every parse error is emitted to **stderr** in the form:
@@ -139,8 +203,16 @@ cdp: config:<line>: <message>
 | Relative `Path` value | `Path must be absolute: '<value>'` |
 | Empty `Run` line | `empty Run line` |
 | Reserved label/name | `project label '<label>' is reserved` / `macro name '<name>' is reserved` / `tmux name '<name>' is reserved` / `pane name '<name>' is reserved` |
-| `Macro` outside a `Project` block | `Macro outside Project block` |
+| `Macro` outside a `Project` AND outside a `Group` block | `Macro outside Project or Group block` |
 | `Run` outside a `Macro` or `Pane` block | `Run outside Macro or Pane block` |
+| Duplicate group label (V1.4) | `duplicate group label: '<label>'` |
+| Reserved group label (V1.4) | `group label '<label>' is reserved` |
+| Invalid group label syntax (V1.4) | `invalid group label: '<value>'` |
+| Bare `Group` keyword with no label (V1.4) | `Group requires a label` |
+| Duplicate Macro within a Group (V1.4) | `duplicate macro name '<name>' in group '<group>'` |
+| `Path` inside a `Group` block (V1.4) | `Path inside Group block` |
+| `Tmux` inside a `Group` block (V1.4) | `Tmux inside Group block` |
+| Nested `Group` (V1.4) | `nested Group not allowed` |
 | Duplicate Tmux name in project (V1.1) | `duplicate tmux name '<name>' in project '<label>'` |
 | Tmux/Macro name collision in project (V1.1) | `name '<name>' already used as Macro in project '<label>'` (or `as Tmux`) |
 | Multiple `Layout` lines in one Tmux block (V1.1) | `multiple Layout lines for tmux '<name>' of project '<label>'` |
@@ -234,7 +306,31 @@ Project active
 
 The `archived` project is not parsed at all (every line begins with `#`). Only `active` is registered.
 
-### Example 8 — Duplicate label, parse error
+### Example 8 — Group with shared Macro and an override (V1.4)
+
+```text
+Group xlnf
+    Macro claude
+        Run ../xlnfclaude -c
+
+    Project xlnf
+        Path /home/user/xlnf
+        Macro claude              # shadows the group's claude
+            Run ./xlnfclaude -c
+
+    Project cdp
+        Path /home/user/xlnf/cdp
+                                  # inherits claude → ../xlnfclaude -c
+```
+
+`cdp ls` output (TAB-separated, header omitted in this view):
+
+```
+cdp     /home/user/xlnf/cdp     claude:macro@xlnf
+xlnf    /home/user/xlnf         claude:macro
+```
+
+### Example 9 — Duplicate label, parse error
 
 Source:
 
@@ -253,13 +349,17 @@ cdp: config:3: duplicate label: 'foo'
 
 Exit code: `65`.
 
-## 10. Open questions (deferred to V1.2+)
+## 10. Open questions (deferred to a future minor)
 
 - **`Include <other-config>`** — should we support file-include directives, à la SSH config? Useful for keeping per-machine overrides in a separate file that's not version-controlled. Deferred until users request it.
 - **`Env KEY=VALUE` per project** — auto-export environment variables on jump. This sits between project-config and direnv's territory; might be best left to direnv. Deferred.
 - **Multi-window `Tmux` blocks** — V1.1 creates one tmux window per session. A future `Window <name> { ... }` nested construct could express multi-window layouts. Deferred until users hit the single-window ceiling.
-- **Per-pane `Cwd <subpath>`** — every pane currently inherits the project's `Path`. A `Cwd` child of `Pane` could override it for that pane. Deferred to V1.2.
+- **Per-pane `Cwd <subpath>`** — every pane currently inherits the project's `Path`. A `Cwd` child of `Pane` could override it for that pane. Deferred.
+- **Group-level `Workspace <abspath>` (path prefix)** — V1.4 `Group` carries macros only; member `Path`s remain absolute. A future `Workspace /home/user/xlnf` declaration on the `Group` could let member projects use relative `Path`s rooted at it (e.g. `Path cdp` → `/home/user/xlnf/cdp`). Deferred to V1.5; non-breaking once added.
+- **Group-level `Tmux` blocks** — V1.4 deliberately limits `Group` children to `Macro` only. If users hit duplicated `Tmux` blocks across a group, the same inheritance rule could be extended. Deferred.
+- **Multi-group membership** — V1.4 nesting makes a project a member of exactly one group. A future `In <group1> <group2>` declaration could opt a project into multiple groups. Deferred until users hit the single-group ceiling.
 
 ### Resolved questions
 
 - **`Layout` keyword reservation** — reserved as of V1.1 alongside `Tmux` and `Pane`. Users with `Macro` or `Pane` names spelled `layout`, `tmux`, or `pane` must rename before upgrading from V1.0.x → V1.1.
+- **`Group` keyword reservation** — reserved as of V1.4. Adding the `Group` keyword does **not** force identifier renames: the parser distinguishes keywords (first whitespace-delimited token, case-insensitive) from identifiers (the value after the keyword, case-sensitive), and the reserved-subcommand list (§6) is unchanged. A project or macro named `group` is unaffected; `Group` only matters as the literal first token of a line.

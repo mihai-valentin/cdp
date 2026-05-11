@@ -45,7 +45,7 @@ eval "$(~/.local/bin/cdp init bash)"
 ### From a release tarball
 
 ```bash
-VERSION=1.3.0
+VERSION=1.4.0
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz.sha256
 sha256sum -c cdp-${VERSION}.tar.gz.sha256
@@ -87,7 +87,7 @@ cdp edit                    # open the config in $VISUAL / $EDITOR
 cdp check                   # parse the config and report validity
 ```
 
-`cdp ls` output is `LABEL\tPATH\tACTIONS` — friendly to `awk`. Pipe to `column -t -s$'\t'` for a human-readable view. Each entry in `ACTIONS` is `<name>:<kind>` where `<kind>` is `macro` or `tmux`, in source order. Macros and tmux blocks have no dedicated subcommand in V1 — use `cdp edit` (or any editor of your choice) to add or modify them.
+`cdp ls` output is `LABEL\tPATH\tACTIONS` — friendly to `awk`. Pipe to `column -t -s$'\t'` for a human-readable view. Each entry in `ACTIONS` is `<name>:<kind>` where `<kind>` is `macro` or `tmux`, in source order. Macros inherited from a `Group` (see below) carry a trailing `@<group>` suffix (e.g. `claude:macro@xlnf`). Macros and tmux blocks have no dedicated subcommand in V1 — use `cdp edit` (or any editor of your choice) to add or modify them.
 
 `cdp edit` resolves the editor in the standard `$VISUAL` → `$EDITOR` → `vi` chain. If the config file does not yet exist, the parent directory is created so the editor opens at the resolved path; the file is materialized on save.
 
@@ -145,6 +145,44 @@ Project api
 
 The formal grammar lives in [`docs/specs/config-format.md`](docs/specs/config-format.md). Highlights: indentation-based blocks, case-insensitive keywords, `#` line comments only (no trailing comments), tilde expansion at parse time.
 
+### Groups (shared macros)
+
+Wrap a set of related projects under a `Group` block to share `Macro`s across them. A group's macros are inherited by every nested project; a project's own macro of the same name **shadows** the inherited one.
+
+```text
+Group xlnf
+    Macro claude
+        Run ../xlnfclaude -c
+
+    Project xlnf
+        Path /home/user/xlnf
+        Macro claude              # shadows the group's claude
+            Run ./xlnfclaude -c
+
+    Project cdp
+        Path /home/user/xlnf/cdp
+                                  # inherits claude from the group
+
+    Project shawarma
+        Path /home/user/xlnf/shawarma
+                                  # inherits claude
+
+Project nexus                     # column 0 — outside any group
+    Path /home/user/nexus
+    Macro claude
+        Run claude -c
+```
+
+Then `cdp cdp claude` runs `../xlnfclaude -c` (inherited), `cdp xlnf claude` runs `./xlnfclaude -c` (override), and `cdp nexus claude` runs `claude -c` (no group affiliation). `cdp ls` shows the inheritance:
+
+```
+cdp     /home/user/xlnf/cdp     claude:macro@xlnf
+nexus   /home/user/nexus        claude:macro
+xlnf    /home/user/xlnf         claude:macro
+```
+
+Group rules in brief: nesting determines membership (one group per project); `Group` carries `Macro`s only — `Path`, `Tmux`, and nested `Group` are parse errors; project-local always wins on name collision.
+
 ## Shell support
 
 - **bash 4+** and **zsh** are tested daily.
@@ -163,7 +201,7 @@ The formal grammar lives in [`docs/specs/config-format.md`](docs/specs/config-fo
 
 ## Status
 
-v1.3.0 — adds `cdp check` (config validator) on top of the v1.2.x edit / v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
+v1.4.0 — adds `Group` blocks for sharing `Macro`s across related projects (with project-level shadowing), on top of the v1.3.x `cdp check` / v1.2.x `cdp edit` / v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
 
 ## Contributing
 

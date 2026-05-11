@@ -18,8 +18,10 @@ Usage:
                                Output is TAB-separated: LABEL, PATH, ACTIONS.
                                ACTIONS is a comma-separated list of
                                <name>:<kind> entries (kind = macro | tmux),
-                               in source order. Pipe to `column -t -s$'\t'`
-                               for a human-readable view.
+                               in source order. Macros inherited from a
+                               Group carry a `@<group>` suffix
+                               (e.g. claude:macro@xlnf). Pipe to
+                               `column -t -s$'\t'` for a human-readable view.
   cdp edit                     Open the config file in $VISUAL / $EDITOR
                                (falling back to vi). Useful for adding
                                Macro / Tmux blocks, which have no
@@ -36,6 +38,10 @@ Usage:
 
 Config file:
   Searched in order: $CDP_CONFIG, $XDG_CONFIG_HOME/cdp/config,
-  $HOME/.config/cdp/config. See docs/specs/config-format.md for the macro
-  grammar and docs/specs/tmux-layout.md for the tmux/layout grammar.
+  $HOME/.config/cdp/config. See docs/specs/config-format.md for the
+  macro / Group grammar and docs/specs/tmux-layout.md for the tmux
+  / layout grammar. Group blocks let several projects share macros:
+  declare a Macro at Group level and every nested Project inherits
+  it (a project's own Macro of the same name shadows the inherited
+  one).
 USAGE

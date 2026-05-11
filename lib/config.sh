@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # lib/config.sh — cdp config-file parser.
-# Tested by tests/config_parse.bats and tests/config_parse_tmux.bats.
+# Tested by tests/config_parse.bats, tests/config_parse_tmux.bats and
+# tests/group.bats.
 #
 # Sourced (not executed). Populates these globals in the caller's scope:
 #
@@ -21,6 +22,12 @@
 #     CDP_ACTIONS       (assoc): "label\x1fname"  -> "macro" | "tmux"
 #     CDP_ACTION_ORDER  (indexed): "label\x1fname" records in source order
 #                                   (used by `cdp ls` to preserve config order)
+#
+#   V1.4 (Group / inherited Macros):
+#     CDP_GROUPS         (assoc): group-name -> 1
+#     CDP_PROJECT_GROUP  (assoc): label      -> group-name (only for grouped projects)
+#     CDP_GROUP_MACROS   (assoc): "group\x1fmacro" -> 1
+#     CDP_GROUP_RUNS_<group>_<macro> (indexed): Run lines, source order.
 #
 #   Hyphens in identifiers are mapped to underscores for the array-name
 #   portion only (bash identifier rules); the originals are preserved as
@@ -85,6 +92,7 @@ cdp_config_parse() {
     declare -gA CDP_TMUX_PANES=() CDP_TMUX_PANE_LINENOS=()
     declare -gA CDP_ACTIONS=()
     declare -ga CDP_ACTION_ORDER=()
+    declare -gA CDP_GROUPS=() CDP_PROJECT_GROUP=() CDP_GROUP_MACROS=()
 
     # Save and enable nocasematch for keyword case-insensitivity.
     local _had_nocase=0
@@ -93,13 +101,18 @@ cdp_config_parse() {
 
     local lineno=0
     local _proj="" _macro="" _tmux="" _pane=""
-    local line line_trimmed first value arr_name key
+    local _group="" _group_indent=-1
+    local line line_trimmed first value arr_name key gkey
+    local leading_ws indent
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         lineno=$((lineno + 1))
         line="${line%$'\r'}"
-        # Trim leading whitespace.
-        line_trimmed="${line#"${line%%[![:space:]]*}"}"
+        # Compute leading-whitespace byte count (used for Group nesting checks)
+        # and the trimmed body in one pass.
+        leading_ws="${line%%[![:space:]]*}"
+        indent="${#leading_ws}"
+        line_trimmed="${line#"$leading_ws"}"
 
         # Skip blank lines and comments.
         if [[ -z "$line_trimmed" ]] || [[ "${line_trimmed:0:1}" == "#" ]]; then
@@ -119,7 +132,39 @@ cdp_config_parse() {
         value="${value%"${value##*[![:space:]]}"}"
 
         case "$first" in
+            Group)
+                if [[ -z "$value" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Group requires a label"
+                fi
+                if ! [[ "$value" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: invalid group label: '${value}'"
+                fi
+                if _cdp_is_reserved "$value"; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: group label '${value}' is reserved"
+                fi
+                # Nested Group is forbidden — a deeper-indented Group inside an
+                # already-open Group has no defined inheritance semantics in V1.4.
+                if [[ -n "$_group" && "$indent" -gt "$_group_indent" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: nested Group not allowed"
+                fi
+                if [[ -n "${CDP_GROUPS[$value]+x}" ]]; then
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: duplicate group label: '${value}'"
+                fi
+                _group="$value"
+                _group_indent="$indent"
+                _proj=""
+                _macro=""
+                _tmux=""
+                _pane=""
+                CDP_GROUPS["$_group"]=1
+                ;;
             Project)
+                # If we were inside a Group but this Project sits at sibling /
+                # outer indent, leave the group before processing.
+                if [[ -n "$_group" && "$indent" -le "$_group_indent" ]]; then
+                    _group=""
+                    _group_indent=-1
+                fi
                 if [[ -z "$value" ]]; then
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Project requires a label"
                 fi
@@ -137,9 +182,15 @@ cdp_config_parse() {
                 _tmux=""
                 _pane=""
                 CDP_PROJECTS["$_proj"]=1
+                if [[ -n "$_group" ]]; then
+                    CDP_PROJECT_GROUP["$_proj"]="$_group"
+                fi
                 ;;
             Path)
                 if [[ -z "$_proj" ]]; then
+                    if [[ -n "$_group" ]]; then
+                        CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Path inside Group block"
+                    fi
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Path outside Project block"
                 fi
                 if [[ -z "$value" ]]; then
@@ -163,9 +214,6 @@ cdp_config_parse() {
                 CDP_PATHS["$_proj"]="$value"
                 ;;
             Macro)
-                if [[ -z "$_proj" ]]; then
-                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Macro outside Project block"
-                fi
                 if [[ -z "$value" ]]; then
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Macro requires a name"
                 fi
@@ -175,26 +223,48 @@ cdp_config_parse() {
                 if _cdp_is_reserved "$value"; then
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: macro name '${value}' is reserved"
                 fi
-                key="${_proj}"$'\x1f'"${value}"
-                if [[ "${CDP_ACTIONS[$key]:-}" == "tmux" ]]; then
-                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: name '${value}' already used as Tmux in project '${_proj}'"
+                if [[ -n "$_proj" ]]; then
+                    # Project-level macro (V1 path).
+                    key="${_proj}"$'\x1f'"${value}"
+                    if [[ "${CDP_ACTIONS[$key]:-}" == "tmux" ]]; then
+                        CDP_DIE_EXIT=65 cdp_die "config:${lineno}: name '${value}' already used as Tmux in project '${_proj}'"
+                    fi
+                    if [[ -n "${CDP_MACROS[$key]+x}" ]]; then
+                        CDP_DIE_EXIT=65 cdp_die "config:${lineno}: duplicate macro name '${value}' in project '${_proj}'"
+                    fi
+                    _macro="$value"
+                    _tmux=""
+                    _pane=""
+                    CDP_MACROS["$key"]=1
+                    CDP_ACTIONS["$key"]="macro"
+                    CDP_ACTION_ORDER+=("$key")
+                    arr_name="CDP_RUNS_${_proj//-/_}_${_macro//-/_}"
+                    # Eval is required because the array name is dynamic.
+                    # shellcheck disable=SC2294
+                    eval "declare -ga ${arr_name}=()"
+                elif [[ -n "$_group" ]]; then
+                    # Group-level macro (V1.4 inheritance — applies to every
+                    # member project unless that project shadows the name).
+                    gkey="${_group}"$'\x1f'"${value}"
+                    if [[ -n "${CDP_GROUP_MACROS[$gkey]+x}" ]]; then
+                        CDP_DIE_EXIT=65 cdp_die "config:${lineno}: duplicate macro name '${value}' in group '${_group}'"
+                    fi
+                    _macro="$value"
+                    _tmux=""
+                    _pane=""
+                    CDP_GROUP_MACROS["$gkey"]=1
+                    arr_name="CDP_GROUP_RUNS_${_group//-/_}_${_macro//-/_}"
+                    # shellcheck disable=SC2294
+                    eval "declare -ga ${arr_name}=()"
+                else
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Macro outside Project or Group block"
                 fi
-                if [[ -n "${CDP_MACROS[$key]+x}" ]]; then
-                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: duplicate macro name '${value}' in project '${_proj}'"
-                fi
-                _macro="$value"
-                _tmux=""
-                _pane=""
-                CDP_MACROS["$key"]=1
-                CDP_ACTIONS["$key"]="macro"
-                CDP_ACTION_ORDER+=("$key")
-                arr_name="CDP_RUNS_${_proj//-/_}_${_macro//-/_}"
-                # Eval is required because the array name is dynamic.
-                # shellcheck disable=SC2294
-                eval "declare -ga ${arr_name}=()"
                 ;;
             Tmux)
                 if [[ -z "$_proj" ]]; then
+                    if [[ -n "$_group" ]]; then
+                        CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Tmux inside Group block"
+                    fi
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Tmux outside Project block"
                 fi
                 if [[ -z "$value" ]]; then
@@ -271,7 +341,15 @@ cdp_config_parse() {
                 if [[ -n "$_pane" ]]; then
                     arr_name="CDP_TMUX_PANE_RUNS_${_proj//-/_}_${_tmux//-/_}_${_pane//-/_}"
                 elif [[ -n "$_macro" ]]; then
-                    arr_name="CDP_RUNS_${_proj//-/_}_${_macro//-/_}"
+                    if [[ -n "$_proj" ]]; then
+                        arr_name="CDP_RUNS_${_proj//-/_}_${_macro//-/_}"
+                    elif [[ -n "$_group" ]]; then
+                        arr_name="CDP_GROUP_RUNS_${_group//-/_}_${_macro//-/_}"
+                    else
+                        # Unreachable: _macro is only set after a Macro line,
+                        # which itself requires _proj or _group.
+                        CDP_DIE_EXIT=70 cdp_die "config:${lineno}: parser invariant: _macro set without _proj or _group"
+                    fi
                 else
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Run outside Macro or Pane block"
                 fi
