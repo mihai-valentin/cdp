@@ -29,6 +29,14 @@
 #     CDP_GROUP_MACROS   (assoc): "group\x1fmacro" -> 1
 #     CDP_GROUP_RUNS_<group>_<macro> (indexed): Run lines, source order.
 #
+#   V1.5 (Group root Path):
+#     CDP_GROUP_PATHS    (assoc): group-name -> absolute workspace-root path.
+#       When set, a member project's relative Path is joined onto this root
+#       (group root + sub path); an absolute member Path wins (escapes the
+#       root); a member with no Path resolves to the group root itself. The
+#       composition happens at parse time, so CDP_PATHS still holds the final
+#       absolute path for every project — downstream consumers are unchanged.
+#
 #   Hyphens in identifiers are mapped to underscores for the array-name
 #   portion only (bash identifier rules); the originals are preserved as
 #   keys in the assoc maps.
@@ -93,6 +101,7 @@ cdp_config_parse() {
     declare -gA CDP_ACTIONS=()
     declare -ga CDP_ACTION_ORDER=()
     declare -gA CDP_GROUPS=() CDP_PROJECT_GROUP=() CDP_GROUP_MACROS=()
+    declare -gA CDP_GROUP_PATHS=()
 
     # Save and enable nocasematch for keyword case-insensitivity.
     local _had_nocase=0
@@ -187,12 +196,6 @@ cdp_config_parse() {
                 fi
                 ;;
             Path)
-                if [[ -z "$_proj" ]]; then
-                    if [[ -n "$_group" ]]; then
-                        CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Path inside Group block"
-                    fi
-                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Path outside Project block"
-                fi
                 if [[ -z "$value" ]]; then
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Path requires a value"
                 fi
@@ -205,8 +208,38 @@ cdp_config_parse() {
                     "~")    value="$HOME" ;;
                     "~/"*)  value="$HOME/${value:2}" ;;
                 esac
+                if [[ -z "$_proj" ]]; then
+                    if [[ -n "$_group" ]]; then
+                        # V1.5: Path directly under a Group sets the group's
+                        # workspace root. Member projects join their relative
+                        # Path onto it. Must precede the group's member
+                        # Projects (once a Project opens, _proj is set and a
+                        # Path line belongs to that project).
+                        if [[ "$value" != /* ]]; then
+                            CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Group Path must be absolute: '${value}'"
+                        fi
+                        if [[ -n "${CDP_GROUP_PATHS[$_group]+x}" ]]; then
+                            CDP_DIE_EXIT=65 cdp_die "config:${lineno}: multiple Path lines for group '${_group}'"
+                        fi
+                        # Strip trailing slashes for clean joins (keep "/").
+                        while [[ "$value" == */ && "$value" != "/" ]]; do
+                            value="${value%/}"
+                        done
+                        CDP_GROUP_PATHS["$_group"]="$value"
+                        continue
+                    fi
+                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Path outside Project block"
+                fi
+                # Project-level Path. Inside a group with a root, a relative
+                # value is joined onto the root; an absolute value wins
+                # (escapes the root). Outside such a group, a relative value
+                # remains an error.
                 if [[ "$value" != /* ]]; then
-                    CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Path must be absolute: '${value}'"
+                    if [[ -n "$_group" && -n "${CDP_GROUP_PATHS[$_group]+x}" ]]; then
+                        value="${CDP_GROUP_PATHS[$_group]}/${value}"
+                    else
+                        CDP_DIE_EXIT=65 cdp_die "config:${lineno}: Path must be absolute: '${value}'"
+                    fi
                 fi
                 if [[ -n "${CDP_PATHS[$_proj]+x}" ]]; then
                     CDP_DIE_EXIT=65 cdp_die "config:${lineno}: multiple Path lines for project '${_proj}'"
@@ -367,11 +400,17 @@ cdp_config_parse() {
         shopt -u nocasematch
     fi
 
-    # Validate every project has a Path.
-    local label
+    # Validate every project has a Path. A group member with no Path of its
+    # own resolves to the group's root path (V1.5).
+    local label grp
     for label in "${!CDP_PROJECTS[@]}"; do
         if [[ -z "${CDP_PATHS[$label]+x}" ]]; then
-            CDP_DIE_EXIT=65 cdp_die "config: project '${label}' has no Path"
+            grp="${CDP_PROJECT_GROUP[$label]:-}"
+            if [[ -n "$grp" && -n "${CDP_GROUP_PATHS[$grp]+x}" ]]; then
+                CDP_PATHS["$label"]="${CDP_GROUP_PATHS[$grp]}"
+            else
+                CDP_DIE_EXIT=65 cdp_die "config: project '${label}' has no Path"
+            fi
         fi
     done
 

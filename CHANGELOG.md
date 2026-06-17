@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-17
+
+### Added
+
+- `Path` line inside a `Group` block declares a **workspace root** for that group. Member projects are resolved against it: a **relative** member `Path` is joined onto the root (`Path cdp` under root `/home/user/xlnf` → `/home/user/xlnf/cdp`), an **absolute** member `Path` wins (escapes the root), and a member with **no** `Path` resolves to the root itself. The root is tilde-expanded and must be absolute; a trailing slash is normalized away. Composition happens at parse time, so `CDP_PATHS[<label>]` holds the final absolute path and the resolver / `cdp ls` are unchanged.
+- New parser global `CDP_GROUP_PATHS` (assoc: group-name → absolute root). Populated only for groups that declare a `Path`.
+- Tests: 11 new bats cases in `tests/group.bats` covering relative join, absolute-wins, no-Path-resolves-to-root, nested sub paths, trailing-slash normalization, tilde expansion, the no-root error cases (relative / omitted member Path still error), relative-root error, duplicate-group-Path error, and coexistence with inherited macros. Total bats coverage now 145.
+
+### Changed
+
+- A `Path` line directly under a `Group` is no longer a parse error (it sets the group root). The `Path inside Group block` error is removed; `Path` under a `Group` with a relative value now errors with `Group Path must be absolute: '<value>'`, and a second `Path` under one `Group` errors with `multiple Path lines for group '<group>'`.
+- Spec: `docs/specs/config-format.md` gains §5.7 (group root `Path`), an updated §7 constraints list, §8 error-table rows, Example 10, and the deferred "Group-level `Workspace`" open question is moved to resolved.
+
 ## [1.5.0] - 2026-06-17
 
 ### Added

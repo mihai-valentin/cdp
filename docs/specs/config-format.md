@@ -90,7 +90,7 @@ A `Group` block declares a collection of projects that share **macros**. Group-l
 - Group labels must be unique across the config (parse error on duplicate).
 - Group labels must not collide with reserved subcommands (see §6).
 - Group labels live in a **separate namespace** from project labels: `Group xlnf` and `Project xlnf` are both legal — groups are never jump targets, so there is no resolver ambiguity at `cdp xlnf`.
-- A `Group` block **only** carries `Macro` children (each with their own `Run` lines). `Path`, `Tmux`, `Layout`, `Pane`, and nested `Group` are forbidden inside a `Group` block (parse errors — see §7).
+- A `Group` block carries `Macro` children (each with their own `Run` lines) and, optionally, **one** `Path` line declaring the group's workspace root (V1.5 — see §5.7). `Tmux`, `Layout`, `Pane`, and nested `Group` are forbidden inside a `Group` block (parse errors — see §7).
 - A `Group` block may contain zero or more `Project` blocks, each strictly more indented than the `Group` line. A project nested under a `Group` becomes a member of that group (the parser records `<project> → <group>` in `CDP_PROJECT_GROUP`).
 - A project is a member of **at most one** group: nesting determines membership, and a project cannot be in two groups simultaneously. Add a project to a different group by moving it to that group's block.
 - An empty `Group` (no `Macro`s, no `Project`s) parses successfully — it has no effect, but it is not an error.
@@ -103,7 +103,21 @@ Inheritance is **action-name based**, not config-line based. The resolver builds
 
 `cdp ls` annotates inherited entries in the `ACTIONS` column with a trailing `@<group>` suffix (e.g. `claude:macro@xlnf`) so users can tell at a glance which actions are local and which are inherited.
 
-Group-level macros are pure inheritance: there is no `Group`-level `Tmux`, no `Group`-level `Path` prefix (deferred to V1.5+), and no multi-group membership.
+There is no `Group`-level `Tmux` and no multi-group membership. A `Group`-level `Path` root **is** supported as of V1.5 — see §5.7.
+
+### 5.7 `Path <abspath>` inside a `Group` (V1.5)
+
+A `Group` block may declare **one** `Path` line directly under it (before its member `Project` blocks). This is the group's **workspace root** — an absolute path that member projects are resolved against:
+
+- The group root is tilde-expanded and **must be absolute** after expansion (a relative group root is a parse error). A trailing slash is normalized away (`/home/user/ws/` → `/home/user/ws`); the root `/` is preserved.
+- At most one `Path` per group (a second is a parse error). The `Path` must precede the group's member `Project` blocks — once a `Project` opens, a `Path` line belongs to that project.
+- A member project's `Path` is resolved against the root as follows:
+  - **Relative** member `Path` → joined onto the root: `Path cdp` under root `/home/user/ws` resolves to `/home/user/ws/cdp`.
+  - **Absolute** member `Path` (begins with `/`, or a tilde that expands to one) → used as-is; it **wins**, escaping the root. This is the only way a member of a rooted group can live outside the root.
+  - **No** member `Path` at all → the member resolves to the group root itself (`/home/user/ws`).
+- A group **without** a `Path` root behaves exactly as in V1.4: member projects must declare their own absolute `Path` (a relative member `Path`, or an omitted one, is a parse error).
+
+The composition happens at parse time, so the resolver and `cdp ls` see only the final absolute `CDP_PATHS[<label>]` — they are unchanged by this feature.
 
 #### Worked example
 
@@ -179,9 +193,14 @@ V1.4 (Group) additions:
 - A `Group` label that matches a reserved subcommand.
 - Duplicate `Macro` name within the same `Group`.
 - A `Macro` line outside any `Project` AND outside any `Group` block.
-- A `Path` line inside a `Group` block (not inside a nested `Project`).
 - A `Tmux` line inside a `Group` block (not inside a nested `Project`).
 - A nested `Group` (a `Group` line strictly more indented than an enclosing `Group`).
+
+V1.5 (Group root `Path`) additions:
+
+- A relative `Group`-level `Path` (after tilde expansion).
+- Two-plus `Path` lines under the same `Group`.
+- A relative member `Path`, or an omitted member `Path`, inside a `Group` that has **no** root (unchanged from V1.4 — only the *with-root* case relaxes these).
 
 ## 8. Error reporting
 
@@ -210,9 +229,10 @@ cdp: config:<line>: <message>
 | Invalid group label syntax (V1.4) | `invalid group label: '<value>'` |
 | Bare `Group` keyword with no label (V1.4) | `Group requires a label` |
 | Duplicate Macro within a Group (V1.4) | `duplicate macro name '<name>' in group '<group>'` |
-| `Path` inside a `Group` block (V1.4) | `Path inside Group block` |
 | `Tmux` inside a `Group` block (V1.4) | `Tmux inside Group block` |
 | Nested `Group` (V1.4) | `nested Group not allowed` |
+| Relative `Group`-level `Path` (V1.5) | `Group Path must be absolute: '<value>'` |
+| Two-plus `Path` lines in a `Group` (V1.5) | `multiple Path lines for group '<group>'` |
 | Duplicate Tmux name in project (V1.1) | `duplicate tmux name '<name>' in project '<label>'` |
 | Tmux/Macro name collision in project (V1.1) | `name '<name>' already used as Macro in project '<label>'` (or `as Tmux`) |
 | Multiple `Layout` lines in one Tmux block (V1.1) | `multiple Layout lines for tmux '<name>' of project '<label>'` |
@@ -349,17 +369,40 @@ cdp: config:3: duplicate label: 'foo'
 
 Exit code: `65`.
 
+### Example 10 — Group with a workspace-root `Path` (V1.5)
+
+```text
+Group xlnf
+    Path /home/user/xlnf
+    Macro claude
+        Run ../xlnfclaude -c
+
+    Project xlnf                   # no Path → resolves to the root
+    Project cdp
+        Path cdp                   # relative → /home/user/xlnf/cdp
+    Project notes
+        Path /opt/notes            # absolute → wins, escapes the root
+```
+
+Resolved `cdp ls` output (TAB-separated):
+
+```
+cdp     /home/user/xlnf/cdp     claude:macro@xlnf
+notes   /opt/notes              claude:macro@xlnf
+xlnf    /home/user/xlnf         claude:macro@xlnf
+```
+
 ## 10. Open questions (deferred to a future minor)
 
 - **`Include <other-config>`** — should we support file-include directives, à la SSH config? Useful for keeping per-machine overrides in a separate file that's not version-controlled. Deferred until users request it.
 - **`Env KEY=VALUE` per project** — auto-export environment variables on jump. This sits between project-config and direnv's territory; might be best left to direnv. Deferred.
 - **Multi-window `Tmux` blocks** — V1.1 creates one tmux window per session. A future `Window <name> { ... }` nested construct could express multi-window layouts. Deferred until users hit the single-window ceiling.
 - **Per-pane `Cwd <subpath>`** — every pane currently inherits the project's `Path`. A `Cwd` child of `Pane` could override it for that pane. Deferred.
-- **Group-level `Workspace <abspath>` (path prefix)** — V1.4 `Group` carries macros only; member `Path`s remain absolute. A future `Workspace /home/user/xlnf` declaration on the `Group` could let member projects use relative `Path`s rooted at it (e.g. `Path cdp` → `/home/user/xlnf/cdp`). Deferred to V1.5; non-breaking once added.
 - **Group-level `Tmux` blocks** — V1.4 deliberately limits `Group` children to `Macro` only. If users hit duplicated `Tmux` blocks across a group, the same inheritance rule could be extended. Deferred.
 - **Multi-group membership** — V1.4 nesting makes a project a member of exactly one group. A future `In <group1> <group2>` declaration could opt a project into multiple groups. Deferred until users hit the single-group ceiling.
 
 ### Resolved questions
 
 - **`Layout` keyword reservation** — reserved as of V1.1 alongside `Tmux` and `Pane`. Users with `Macro` or `Pane` names spelled `layout`, `tmux`, or `pane` must rename before upgrading from V1.0.x → V1.1.
+- **Group-level `Path` root (path prefix)** — resolved in V1.5 (spelled `Path`, not the originally-floated `Workspace`). A `Path` line directly under a `Group` sets a workspace root; member projects join a relative `Path` onto it, an absolute member `Path` wins, and a member with no `Path` resolves to the root. See §5.7. Non-breaking: groups without a root behave exactly as in V1.4.
 - **`Group` keyword reservation** — reserved as of V1.4. Adding the `Group` keyword does **not** force identifier renames: the parser distinguishes keywords (first whitespace-delimited token, case-insensitive) from identifiers (the value after the keyword, case-sensitive), and the reserved-subcommand list (§6) is unchanged. A project or macro named `group` is unaffected; `Group` only matters as the literal first token of a line.

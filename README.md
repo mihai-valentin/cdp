@@ -45,7 +45,7 @@ eval "$(~/.local/bin/cdp init bash)"
 ### From a release tarball
 
 ```bash
-VERSION=1.5.0
+VERSION=1.6.0
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz.sha256
 sha256sum -c cdp-${VERSION}.tar.gz.sha256
@@ -183,7 +183,23 @@ nexus   /home/user/nexus        claude:macro
 xlnf    /home/user/xlnf         claude:macro
 ```
 
-Group rules in brief: nesting determines membership (one group per project); `Group` carries `Macro`s only — `Path`, `Tmux`, and nested `Group` are parse errors; project-local always wins on name collision.
+Group rules in brief: nesting determines membership (one group per project); a `Group` carries `Macro`s and, optionally, one `Path` root (see below) — `Tmux` and nested `Group` are parse errors; project-local always wins on name collision.
+
+#### Group workspace root
+
+Add a single `Path` line directly under a `Group` (before its projects) to set a **workspace root**. Member projects are then resolved against it:
+
+```text
+Group xlnf
+    Path /home/user/xlnf          # the group's workspace root
+    Project xlnf                  # no Path  → /home/user/xlnf  (the root itself)
+    Project cdp
+        Path cdp                  # relative → /home/user/xlnf/cdp
+    Project notes
+        Path /opt/notes           # absolute → /opt/notes  (wins, escapes the root)
+```
+
+A relative member `Path` is joined onto the root; an absolute member `Path` wins (escapes the root); a member with no `Path` resolves to the root itself. The group root is tilde-expanded and must be absolute. A `Group` without a `Path` root behaves as before — its members must each declare an absolute `Path`.
 
 ## Shell support
 
@@ -203,7 +219,7 @@ Group rules in brief: nesting determines membership (one group per project); `Gr
 
 ## Status
 
-v1.5.0 — `cdp add` now derives the project label from the directory basename and accepts a single path argument (or none, defaulting to the current dir), on top of the v1.4.x `Group` blocks / v1.3.x `cdp check` / v1.2.x `cdp edit` / v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
+v1.6.0 — `Group` blocks can now declare a `Path` workspace root that member projects are resolved against (relative joins onto the root, absolute wins, no-Path resolves to the root). Built on the v1.5.x `cdp add` ergonomics / v1.4.x `Group` blocks / v1.3.x `cdp check` / v1.2.x `cdp edit` / v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
 
 ## Contributing
 

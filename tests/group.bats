@@ -92,13 +92,130 @@ Group g
 
 # --- forbidden constructs inside Group --------------------------------------
 
-@test "Path inside a Group block (no Project) exits 65" {
+# --- group root Path (V1.5) ---------------------------------------------------
+
+@test "group Path root: member relative Path is joined onto the root" {
     write_config "Group g
-    Path /tmp
+    Path /home/user/ws
+    Project cdp
+        Path cdp
+"
+    run cdp ls
+    [ "$status" -eq 0 ]
+    [[ "$output" == "cdp	/home/user/ws/cdp	" ]]
+}
+
+@test "group Path root: member absolute Path wins (escapes the root)" {
+    write_config "Group g
+    Path /home/user/ws
+    Project notes
+        Path /opt/notes
+"
+    run cdp ls
+    [ "$status" -eq 0 ]
+    [[ "$output" == "notes	/opt/notes	" ]]
+}
+
+@test "group Path root: member with no Path resolves to the root itself" {
+    write_config "Group g
+    Path /home/user/ws
+    Project root
+"
+    run cdp ls
+    [ "$status" -eq 0 ]
+    [[ "$output" == "root	/home/user/ws	" ]]
+}
+
+@test "group Path root: nested sub path joins correctly" {
+    write_config "Group g
+    Path /home/user/ws
+    Project deep
+        Path a/b/c
+"
+    run cdp ls
+    [ "$status" -eq 0 ]
+    [[ "$output" == "deep	/home/user/ws/a/b/c	" ]]
+}
+
+@test "group Path root: trailing slash on root is normalized" {
+    write_config "Group g
+    Path /home/user/ws/
+    Project cdp
+        Path cdp
+"
+    run cdp ls
+    [ "$status" -eq 0 ]
+    [[ "$output" == "cdp	/home/user/ws/cdp	" ]]
+}
+
+@test "group Path root: tilde expands in the root" {
+    write_config "Group g
+    Path ~/ws
+    Project cdp
+        Path cdp
+"
+    run cdp ls
+    [ "$status" -eq 0 ]
+    [[ "$output" == "cdp	$HOME/ws/cdp	" ]]
+}
+
+@test "group with no Path root: member relative Path is still an error" {
+    write_config "Group g
+    Macro m
+        Run x
+    Project cdp
+        Path cdp
 "
     run cdp ls
     [ "$status" -eq 65 ]
-    [[ "$output" == *"Path inside Group block"* ]]
+    [[ "$output" == *"Path must be absolute"* ]]
+}
+
+@test "group with no Path root: member with no Path is still an error" {
+    write_config "Group g
+    Macro m
+        Run x
+    Project cdp
+"
+    run cdp ls
+    [ "$status" -eq 65 ]
+    [[ "$output" == *"has no Path"* ]]
+}
+
+@test "group Path root: relative group root is an error" {
+    write_config "Group g
+    Path ws
+    Project cdp
+        Path cdp
+"
+    run cdp ls
+    [ "$status" -eq 65 ]
+    [[ "$output" == *"Group Path must be absolute"* ]]
+}
+
+@test "group Path root: duplicate group Path is an error" {
+    write_config "Group g
+    Path /a
+    Path /b
+    Project cdp
+        Path cdp
+"
+    run cdp ls
+    [ "$status" -eq 65 ]
+    [[ "$output" == *"multiple Path lines for group"* ]]
+}
+
+@test "group Path root coexists with inherited macros" {
+    write_config "Group g
+    Path /home/user/ws
+    Macro hello
+        Run echo hi
+    Project cdp
+        Path cdp
+"
+    run cdp ls
+    [ "$status" -eq 0 ]
+    [[ "$output" == "cdp	/home/user/ws/cdp	hello:macro@g" ]]
 }
 
 @test "Tmux inside a Group block (no Project) exits 65" {

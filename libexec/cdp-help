@@ -47,5 +47,7 @@ Config file:
   / layout grammar. Group blocks let several projects share macros:
   declare a Macro at Group level and every nested Project inherits
   it (a project's own Macro of the same name shadows the inherited
-  one).
+  one). A Group may also declare one Path root: a member's relative
+  Path joins onto it, an absolute Path wins, and a member with no
+  Path resolves to the root itself.
 USAGE
