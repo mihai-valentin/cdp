@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-17
+
+### Added
+
+- `cdp add` now accepts zero, one, or two arguments. With **no args** it adds the current working directory; with a **single path** (`.`, a relative path, `~`, or an absolute path) it adds that directory. In both cases the project label defaults to the directory's basename, so the everyday case is just `cdp add` from inside the project. The explicit two-arg form `cdp add <label> <path>` is unchanged.
+- Path canonicalization: the path argument is now resolved to an absolute path via `cd … && pwd` (logical pwd, preserving the user's symlinked view) before being written, so `.` and relative paths are accepted everywhere — not just absolute paths. The prior "path must be absolute" error is gone.
+- When a label is derived from a directory whose basename is not a valid label (e.g. it contains a `.`), `cdp add` fails with a hint to pass an explicit label: `cdp add <label> <path>`.
+
+### Changed
+
+- `cdp add` usage text broadened to `cdp add [<label>] [<path>]` in `cdp --help` and the arg-count guard now rejects only 3+ args (was: exactly 2 required).
+
 ## [1.4.0] - 2026-05-11
 
 ### Added

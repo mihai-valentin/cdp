@@ -45,7 +45,7 @@ eval "$(~/.local/bin/cdp init bash)"
 ### From a release tarball
 
 ```bash
-VERSION=1.4.0
+VERSION=1.5.0
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz
 curl -sLO https://github.com/mihai-valentin/cdp/releases/download/v${VERSION}/cdp-${VERSION}.tar.gz.sha256
 sha256sum -c cdp-${VERSION}.tar.gz.sha256
@@ -86,6 +86,8 @@ cdp ls                      # list projects (TAB-separated)
 cdp edit                    # open the config in $VISUAL / $EDITOR
 cdp check                   # parse the config and report validity
 ```
+
+`cdp add` derives the project label from the directory's basename when you don't pass one, so the common case is just `cdp add` from inside the project. The path argument accepts `.`, a relative path, `~`, or an absolute path and is canonicalized to an absolute path before it's written. If the basename isn't a valid label (e.g. it contains a `.`), pass one explicitly: `cdp add <label> <path>`. Forms: `cdp add` (current dir), `cdp add <path>`, `cdp add <label> <path>`.
 
 `cdp ls` output is `LABEL\tPATH\tACTIONS` — friendly to `awk`. Pipe to `column -t -s$'\t'` for a human-readable view. Each entry in `ACTIONS` is `<name>:<kind>` where `<kind>` is `macro` or `tmux`, in source order. Macros inherited from a `Group` (see below) carry a trailing `@<group>` suffix (e.g. `claude:macro@xlnf`). Macros and tmux blocks have no dedicated subcommand in V1 — use `cdp edit` (or any editor of your choice) to add or modify them.
 
@@ -201,7 +203,7 @@ Group rules in brief: nesting determines membership (one group per project); `Gr
 
 ## Status
 
-v1.4.0 — adds `Group` blocks for sharing `Macro`s across related projects (with project-level shadowing), on top of the v1.3.x `cdp check` / v1.2.x `cdp edit` / v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
+v1.5.0 — `cdp add` now derives the project label from the directory basename and accepts a single path argument (or none, defaulting to the current dir), on top of the v1.4.x `Group` blocks / v1.3.x `cdp check` / v1.2.x `cdp edit` / v1.1.x tmux-integration line. The roadmap and open items are tracked as GitHub issues; the formal grammar and protocol live under [`docs/specs/`](docs/specs/).
 
 ## Contributing
 

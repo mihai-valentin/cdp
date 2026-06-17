@@ -40,6 +40,56 @@ load helpers
     [[ "$output" == *"not a directory"* ]]
 }
 
+@test "add with no args adds cwd, label = basename" {
+    mkdir -p "$BATS_TEST_TMPDIR/myproj"
+    cd "$BATS_TEST_TMPDIR/myproj"
+    run cdp add
+    [ "$status" -eq 0 ]
+    run cdp ls
+    [ "$status" -eq 0 ]
+    [[ "$output" == "myproj	$BATS_TEST_TMPDIR/myproj	" ]]
+}
+
+@test "add . adds cwd, label = basename" {
+    mkdir -p "$BATS_TEST_TMPDIR/dotproj"
+    cd "$BATS_TEST_TMPDIR/dotproj"
+    run cdp add .
+    [ "$status" -eq 0 ]
+    run cdp ls
+    [[ "$output" == "dotproj	$BATS_TEST_TMPDIR/dotproj	" ]]
+}
+
+@test "add with single absolute path, label = basename" {
+    mkdir -p "$BATS_TEST_TMPDIR/abs"
+    run cdp add "$BATS_TEST_TMPDIR/abs"
+    [ "$status" -eq 0 ]
+    run cdp ls
+    [[ "$output" == "abs	$BATS_TEST_TMPDIR/abs	" ]]
+}
+
+@test "add with single relative path resolves against cwd" {
+    mkdir -p "$BATS_TEST_TMPDIR/parent/child"
+    cd "$BATS_TEST_TMPDIR/parent"
+    run cdp add ./child
+    [ "$status" -eq 0 ]
+    run cdp ls
+    [[ "$output" == "child	$BATS_TEST_TMPDIR/parent/child	" ]]
+}
+
+@test "add fails when derived label is invalid (basename has a dot)" {
+    mkdir -p "$BATS_TEST_TMPDIR/has.dot"
+    run cdp add "$BATS_TEST_TMPDIR/has.dot"
+    [ "$status" -eq 64 ]
+    [[ "$output" == *"cannot derive a valid label"* ]]
+}
+
+@test "add with 3+ args exits 64" {
+    mkdir -p "$BATS_TEST_TMPDIR/p"
+    run cdp add a "$BATS_TEST_TMPDIR/p" extra
+    [ "$status" -eq 64 ]
+    [[ "$output" == *"usage"* ]]
+}
+
 @test "rm round-trip" {
     mkdir -p "$BATS_TEST_TMPDIR/p"
     cdp add foo "$BATS_TEST_TMPDIR/p"

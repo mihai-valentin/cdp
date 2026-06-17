@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # libexec/cdp-add — add a Project block to the config file.
-# Args: <label> <path>
+# Args: [<label>] [<path>]
+#   cdp add                 → add the current dir; label = its basename.
+#   cdp add <path>          → add <path>; label = its basename.
+#                             <path> may be ".", a relative path, "~", or absolute.
+#   cdp add <label> <path>  → add <path> under the explicit <label>.
 # Atomic write under flock; existing config preserved verbatim.
 
 set -euo pipefail
@@ -13,14 +17,43 @@ source "${_CDP_LIB}/log.sh"
 # shellcheck source=lib/config.sh
 source "${_CDP_LIB}/config.sh"
 
-if [[ $# -ne 2 ]]; then
-    CDP_DIE_EXIT=64 cdp_die "add: usage: cdp add <label> <path>"
+if [[ $# -gt 2 ]]; then
+    CDP_DIE_EXIT=64 cdp_die "add: usage: cdp add [<label>] [<path>]"
 fi
 
-label="$1"
-path="$2"
+# Arg-count drives the form: 0 → cwd, 1 → path only, 2 → label + path.
+label=""
+path="."
+case $# in
+    1) path="$1" ;;
+    2) label="$1"; path="$2" ;;
+esac
+
+# Tilde-expand path. The literal "~/" below is a glob pattern, not a value
+# to tilde-expand.
+# shellcheck disable=SC2088
+case "$path" in
+    "~")    path="$HOME" ;;
+    "~/"*)  path="$HOME/${path:2}" ;;
+esac
+if [[ ! -d "$path" ]]; then
+    cdp_die "add: path is not a directory: ${path}"
+fi
+# Canonicalize to an absolute path. `cd … && pwd` resolves ".", relative
+# paths, and "..", while logical pwd keeps the user's symlinked view.
+path="$(cd -- "$path" && pwd)"
+
+# Derive the label from the directory basename when not given explicitly.
+derived=0
+if [[ -z "$label" ]]; then
+    label="${path##*/}"
+    derived=1
+fi
 
 if ! [[ "$label" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+    if (( derived )); then
+        CDP_DIE_EXIT=64 cdp_die "add: cannot derive a valid label from '${path}' (got '${label}'); pass one explicitly: cdp add <label> ${path}"
+    fi
     CDP_DIE_EXIT=64 cdp_die "add: invalid label: '${label}'"
 fi
 case "$label" in
@@ -28,20 +61,6 @@ case "$label" in
         CDP_DIE_EXIT=64 cdp_die "add: label '${label}' is reserved"
         ;;
 esac
-
-# Tilde-expand path, require absolute, require existing dir.
-# The literal "~/" below is a glob pattern, not a value to tilde-expand.
-# shellcheck disable=SC2088
-case "$path" in
-    "~")    path="$HOME" ;;
-    "~/"*)  path="$HOME/${path:2}" ;;
-esac
-if [[ "$path" != /* ]]; then
-    cdp_die "add: path must be absolute: '${path}'"
-fi
-if [[ ! -d "$path" ]]; then
-    cdp_die "add: path is not a directory: ${path}"
-fi
 
 config_path="$(cdp_config_path)"
 mkdir -p -- "$(dirname -- "$config_path")"

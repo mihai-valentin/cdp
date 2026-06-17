@@ -12,7 +12,11 @@ Usage:
   cdp <label> <macro>          Jump, then run the macro's commands.
   cdp <label> <tmux-name>      Jump, then materialize the named tmux layout
                                (or attach if the session already exists).
-  cdp add <label> <path>       Add a project entry to the config.
+  cdp add [<label>] [<path>]   Add a project entry to the config. With no
+                               args, adds the current directory; with a
+                               single <path> ("." , relative, ~ or absolute),
+                               adds that directory. The label defaults to the
+                               directory's basename when not given.
   cdp rm <label>               Remove a project entry.
   cdp ls                       List configured projects.
                                Output is TAB-separated: LABEL, PATH, ACTIONS.

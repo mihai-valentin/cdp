@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-_CDP_VERSION="1.4.0"
+_CDP_VERSION="1.5.0"
 
 # INSTALL_PATH_OVERRIDE — `make install` patches the two assignments below.
 _CDP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
